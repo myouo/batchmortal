@@ -116,7 +116,7 @@ class BrowserAutomator:
         else:
             self.submission_coordinator = None
 
-    def run_worker(self, task_queue, result_queue, max_retries=2):
+    def run_worker(self, task_queue, result_queue, max_retries=3):
         while True:
             if task_queue.empty():
                 break
@@ -158,7 +158,7 @@ class BrowserAutomator:
                             if task["retries"] <= max_retries:
                                 logging.warning(
                                     f"  [RETRY] Analysis failed for {task['uuid']}. "
-                                    f"Retrying ({task['retries']}/{max_retries})."
+                                    f"Retrying ({task['retries']}/{max_retries}) with a fresh page load."
                                 )
                                 task_queue.put(task)
                             else:
@@ -183,7 +183,7 @@ class BrowserAutomator:
                 logging.error(f"  [FATAL] Browser spawn failed: {spawn_err}. Retrying in 5s...")
                 time.sleep(5)
 
-    def iter_dual_window_pipeline(self, tasks, max_retries=2):
+    def iter_dual_window_pipeline(self, tasks, max_retries=3):
         pending = deque(tasks)
 
         with SB(uc=True, headless=self.headless, proxy=self.proxy) as sb:
@@ -433,7 +433,7 @@ class BrowserAutomator:
         if task["retries"] <= max_retries:
             logging.warning(
                 f"  [RETRY] Analysis failed for {task['uuid']}. "
-                f"Retrying ({task['retries']}/{max_retries})."
+                f"Retrying ({task['retries']}/{max_retries}) with a fresh page load."
             )
             pending.append(task)
             return None

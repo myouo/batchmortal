@@ -44,6 +44,7 @@ python main.py 言乾 --modes 12 --limit 1 --headless --save-screenshot --output
 | `--unsafe-parallel-review` | `False` | 允许并发提交 review。理论上更快，但在单代理下通常更慢，也更容易触发 Turnstile 重试 |
 | `--submit-interval` | `6` | 受控提交模式下，两次提交之间的最小间隔秒数 |
 | `--submit-cooldown` | `30` | 受控提交模式下，连续失败后的冷却秒数 |
+| `--retry` | `3` | 失败条目的重试次数。每次重试都会重新打开分析页并重新提交 |
 | `--prewarm-standby` | `False` | 实验功能。启用双窗口接力预热：一个窗口等待结果时，另一个窗口在后台预热下一条任务。该功能仍在验证中，速度和稳定性不保证优于默认串行模式 |
 | `--no-manual-verification` | `False` | 兼容旧脚本保留参数，当前无实际作用 |
 | `--flare-url` | 无 | 兼容旧脚本保留参数，当前无实际作用 |

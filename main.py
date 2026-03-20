@@ -69,6 +69,12 @@ def parse_args():
         help="Experimental: keep one extra prewarmed browser ready while submissions stay serialized.",
     )
     parser.add_argument(
+        "--retry",
+        type=int,
+        default=3,
+        help="Retry failed review items this many times with a fresh page load (default: 3).",
+    )
+    parser.add_argument(
         "--output",
         choices=["csv", "xlsx"],
         default="xlsx",
@@ -136,6 +142,7 @@ def print_summary(args, modes):
     log_line(f"  ModelTag:  {args.model_tag}")
     log_line(f"  Headless:  {args.headless}")
     log_line(f"  DryRun:    {args.dry_run}")
+    log_line(f"  Retry:     {args.retry}")
     log_line("=============================")
 
 
@@ -187,7 +194,12 @@ def consume_result_event(args, writer: ResultWriter, result_event: dict) -> tupl
     return 0, 1
 
 
-def run_parallel_analysis(args, tasks: list[dict], out_path: str, automator: BrowserAutomator) -> tuple[int, int]:
+def run_parallel_analysis(
+    args,
+    tasks: list[dict],
+    out_path: str,
+    automator: BrowserAutomator,
+) -> tuple[int, int]:
     total_processed = 0
     total_failed = 0
     writer = ResultWriter(out_path, args.output)
@@ -200,20 +212,29 @@ def run_parallel_analysis(args, tasks: list[dict], out_path: str, automator: Bro
     try:
         with SB(uc=True, headless=automator.headless, proxy=automator.proxy) as sb:
             for task in tasks:
-                try:
-                    result = automator.analyze_single(sb, task)
-                    succeeded, failed = consume_result_event(
-                        args,
-                        writer,
-                        {"status": "success", "task": task, "result": result},
-                    )
-                except Exception as exc:
-                    logging.error(f"  [ERROR] {task['uuid']} exception: {exc}")
-                    succeeded, failed = consume_result_event(
-                        args,
-                        writer,
-                        {"status": "fail", "task": task},
-                    )
+                result_event = None
+                for attempt in range(args.retry + 1):
+                    try:
+                        result = automator.analyze_single(sb, task)
+                        result_event = {"status": "success", "task": task, "result": result}
+                        break
+                    except Exception as exc:
+                        logging.error(f"  [ERROR] {task['uuid']} exception: {exc}")
+                        if attempt < args.retry:
+                            logging.warning(
+                                f"  [RETRY] Analysis failed for {task['uuid']}. "
+                                f"Retrying ({attempt + 1}/{args.retry}) with a fresh page load."
+                            )
+                            continue
+
+                        logging.error(
+                            f"  [SKIP] Analysis permanently failed for {task['uuid']} "
+                            f"after {args.retry} retries."
+                        )
+                        result_event = {"status": "fail", "task": task}
+                        break
+
+                succeeded, failed = consume_result_event(args, writer, result_event)
                 total_processed += succeeded
                 total_failed += failed
     finally:
@@ -234,7 +255,7 @@ def run_controlled_pipeline_analysis(args, tasks: list[dict], out_path: str, aut
     log_line("[Pipeline] Starting dual-window standby pipeline")
 
     try:
-        for result_event in automator.iter_dual_window_pipeline(tasks):
+        for result_event in automator.iter_dual_window_pipeline(tasks, max_retries=args.retry):
             succeeded, failed = consume_result_event(args, writer, result_event)
             total_processed += succeeded
             total_failed += failed
@@ -248,6 +269,7 @@ def main():
     configure_logging()
     start_time = time.time()
     args = parse_args()
+    args.retry = max(0, args.retry)
     modes = [int(mode.strip()) for mode in args.modes.split(",")]
     print_summary(args, modes)
 

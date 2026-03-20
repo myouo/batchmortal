@@ -1,18 +1,28 @@
 import argparse
 import logging
 import os
-import queue
 import sys
-import threading
 import time
 import urllib.request
 from datetime import datetime, timezone
 
 from api import build_paipu_urls, get_player_records, search_player
-from browser import BrowserAutomator
+from browser import BrowserAutomator, ReviewSubmissionCoordinator
 from results import ResultWriter, parse_metadata
+from seleniumbase import SB
 
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+def configure_logging():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(message)s",
+        datefmt="%H:%M:%S",
+        force=True,
+    )
+
+
+def log_line(message=""):
+    logging.info(message)
 
 
 def parse_args():
@@ -42,6 +52,23 @@ def parse_args():
         help="Allow concurrent review submissions. Faster on paper, but often slower in practice due to Turnstile retries.",
     )
     parser.add_argument(
+        "--submit-interval",
+        type=float,
+        default=6.0,
+        help="Minimum spacing between controlled submissions in seconds (default: 6).",
+    )
+    parser.add_argument(
+        "--submit-cooldown",
+        type=float,
+        default=30.0,
+        help="Cooldown seconds after repeated review failures in controlled mode (default: 30).",
+    )
+    parser.add_argument(
+        "--prewarm-standby",
+        action="store_true",
+        help="Experimental: keep one extra prewarmed browser ready while submissions stay serialized.",
+    )
+    parser.add_argument(
         "--output",
         choices=["csv", "xlsx"],
         default="xlsx",
@@ -51,7 +78,6 @@ def parse_args():
         "--proxy",
         help="Proxy URL (e.g. http://127.0.0.1:7890). If omitted, attempts to use system proxy.",
     )
-    parser.add_argument("--workers", type=int, default=3, help="Max parallel browser instances (default: 3)")
     return parser.parse_args()
 
 
@@ -75,7 +101,7 @@ def detect_proxy(explicit_proxy: str | None) -> str | None:
 def collect_tasks(account_id: int, modes: list[int], limit: int, output_root: str) -> list[dict]:
     tasks = []
     for mode in modes:
-        print(f"\n[Mode {mode}] Fetching records...")
+        log_line(f"[Mode {mode}] Fetching records...")
         try:
             records = get_player_records(account_id, limit, mode)
         except Exception as exc:
@@ -103,115 +129,115 @@ def collect_tasks(account_id: int, modes: list[int], limit: int, output_root: st
 
 
 def print_summary(args, modes):
-    print("\n=== Batch Mortal Analysis ===")
-    print(f"  Player:    {args.nickname}")
-    print(f"  Modes:     {modes}")
-    print(f"  Limit:     {args.limit} per mode")
-    print(f"  ModelTag:  {args.model_tag}")
-    print(f"  Headless:  {args.headless}")
-    print(f"  DryRun:    {args.dry_run}")
-    print("=============================\n")
+    log_line("=== Batch Mortal Analysis ===")
+    log_line(f"  Player:    {args.nickname}")
+    log_line(f"  Modes:     {modes}")
+    log_line(f"  Limit:     {args.limit} per mode")
+    log_line(f"  ModelTag:  {args.model_tag}")
+    log_line(f"  Headless:  {args.headless}")
+    log_line(f"  DryRun:    {args.dry_run}")
+    log_line("=============================")
+
+
+def consume_result_event(args, writer: ResultWriter, result_event: dict) -> tuple[int, int]:
+    task = result_event["task"]
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    base_row = {
+        "nickname": args.nickname,
+        "mode": task["mode"],
+        "uuid": task["uuid"],
+        "paipuUrl": task["paipu_url"],
+        "timestamp": timestamp,
+    }
+
+    if result_event["status"] == "success":
+        result = result_event["result"]
+        parsed = parse_metadata(result["metadata"])
+        writer.write_row(
+            {
+                **base_row,
+                "resultUrl": result["resultUrl"],
+                "modelTag": parsed.get("modelTag") or args.model_tag,
+                "rating": parsed.get("rating", ""),
+                "aiConsistencyRate": parsed.get("aiConsistencyRate", ""),
+                "aiConsistencyNumerator": parsed.get("aiConsistencyNumerator", ""),
+                "aiConsistencyDenominator": parsed.get("aiConsistencyDenominator", ""),
+                "temperature": parsed.get("temperature", ""),
+                "gameLength": parsed.get("gameLength", ""),
+                "playerId": parsed.get("playerId", ""),
+                "reviewDuration": parsed.get("reviewDuration", ""),
+                "screenshotPath": result.get("screenshotPath", ""),
+            }
+        )
+        log_line(
+            "  OK "
+            f"rating={parsed.get('rating', 'N/A')} "
+            f"match={parsed.get('aiConsistencyRate', 'N/A')} "
+            f"({task['uuid']})"
+        )
+        return 1, 0
+
+    writer.write_row(
+        {
+            **base_row,
+            "modelTag": args.model_tag,
+            "rating": "ERROR",
+        }
+    )
+    return 0, 1
 
 
 def run_parallel_analysis(args, tasks: list[dict], out_path: str, automator: BrowserAutomator) -> tuple[int, int]:
     total_processed = 0
     total_failed = 0
-    requested_workers = min(args.workers, len(tasks))
-    if args.unsafe_parallel_review:
-        max_workers = requested_workers
-    else:
-        max_workers = min(requested_workers, 1)
-        if requested_workers > max_workers:
-            logging.info(
-                "[Parallel] Review submissions are serialized by default because concurrent workers "
-                "trigger long Turnstile waits and retries. Use --unsafe-parallel-review to override."
-            )
-    print(f"\n[Parallel] Starting analysis with {max_workers} persistent browsers")
-
-    task_queue: queue.Queue = queue.Queue()
-    result_queue: queue.Queue = queue.Queue()
     writer = ResultWriter(out_path, args.output)
 
     for task in tasks:
         task["model_tag"] = args.model_tag
         task["save_screenshot"] = args.save_screenshot
-        task_queue.put(task)
-
-    def reporter():
-        nonlocal total_processed, total_failed
-        processed_count = 0
-        expected_count = len(tasks)
-
-        while processed_count < expected_count:
-            result_event = result_queue.get()
-            try:
-                task = result_event["task"]
-                timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-                base_row = {
-                    "nickname": args.nickname,
-                    "mode": task["mode"],
-                    "uuid": task["uuid"],
-                    "paipuUrl": task["paipu_url"],
-                    "timestamp": timestamp,
-                }
-
-                if result_event["status"] == "success":
-                    result = result_event["result"]
-                    parsed = parse_metadata(result["metadata"])
-                    writer.write_row(
-                        {
-                            **base_row,
-                            "resultUrl": result["resultUrl"],
-                            "modelTag": parsed.get("modelTag") or args.model_tag,
-                            "rating": parsed.get("rating", ""),
-                            "aiConsistencyRate": parsed.get("aiConsistencyRate", ""),
-                            "aiConsistencyNumerator": parsed.get("aiConsistencyNumerator", ""),
-                            "aiConsistencyDenominator": parsed.get("aiConsistencyDenominator", ""),
-                            "temperature": parsed.get("temperature", ""),
-                            "gameLength": parsed.get("gameLength", ""),
-                            "playerId": parsed.get("playerId", ""),
-                            "reviewDuration": parsed.get("reviewDuration", ""),
-                            "screenshotPath": result.get("screenshotPath", ""),
-                        }
-                    )
-                    total_processed += 1
-                    print(
-                        "  OK "
-                        f"rating={parsed.get('rating', 'N/A')} "
-                        f"match={parsed.get('aiConsistencyRate', 'N/A')} "
-                        f"({task['uuid']})"
-                    )
-                else:
-                    writer.write_row(
-                        {
-                            **base_row,
-                            "modelTag": args.model_tag,
-                            "rating": "ERROR",
-                        }
-                    )
-                    total_failed += 1
-            finally:
-                processed_count += 1
-                result_queue.task_done()
-
-    reporter_thread = threading.Thread(target=reporter, name="result-reporter")
-    worker_threads = []
+    log_line("[Parallel] Starting serial analysis with 1 persistent browser")
 
     try:
-        reporter_thread.start()
-        for index in range(max_workers):
-            thread = threading.Thread(
-                target=automator.run_worker,
-                args=(task_queue, result_queue),
-                name=f"browser-worker-{index + 1}",
-            )
-            thread.start()
-            worker_threads.append(thread)
+        with SB(uc=True, headless=automator.headless, proxy=automator.proxy) as sb:
+            for task in tasks:
+                try:
+                    result = automator.analyze_single(sb, task)
+                    succeeded, failed = consume_result_event(
+                        args,
+                        writer,
+                        {"status": "success", "task": task, "result": result},
+                    )
+                except Exception as exc:
+                    logging.error(f"  [ERROR] {task['uuid']} exception: {exc}")
+                    succeeded, failed = consume_result_event(
+                        args,
+                        writer,
+                        {"status": "fail", "task": task},
+                    )
+                total_processed += succeeded
+                total_failed += failed
+    finally:
+        writer.close()
 
-        task_queue.join()
-        reporter_thread.join()
-        for thread in worker_threads:
-            thread.join()
+    return total_processed, total_failed
+
+
+def run_controlled_pipeline_analysis(args, tasks: list[dict], out_path: str, automator: BrowserAutomator) -> tuple[int, int]:
+    total_processed = 0
+    total_failed = 0
+    writer = ResultWriter(out_path, args.output)
+
+    for task in tasks:
+        task["model_tag"] = args.model_tag
+        task["save_screenshot"] = args.save_screenshot
+
+    log_line("[Pipeline] Starting dual-window standby pipeline")
+
+    try:
+        for result_event in automator.iter_dual_window_pipeline(tasks):
+            succeeded, failed = consume_result_event(args, writer, result_event)
+            total_processed += succeeded
+            total_failed += failed
     finally:
         writer.close()
 
@@ -219,6 +245,7 @@ def run_parallel_analysis(args, tasks: list[dict], out_path: str, automator: Bro
 
 
 def main():
+    configure_logging()
     start_time = time.time()
     args = parse_args()
     modes = [int(mode.strip()) for mode in args.modes.split(",")]
@@ -244,21 +271,42 @@ def main():
 
     if args.dry_run:
         for task in tasks:
-            print(f"\n[{task['idx']}/{task['total']}] mode={task['mode']} uuid={task['uuid']}")
-            print(f"  [dry-run] PaipuURL: {task['paipu_url']}")
+            log_line(f"[{task['idx']}/{task['total']}] mode={task['mode']} uuid={task['uuid']}")
+            log_line(f"  [dry-run] PaipuURL: {task['paipu_url']}")
             total_processed += 1
     elif tasks:
-        automator = BrowserAutomator(headless=args.headless, proxy=proxy)
-        total_processed, total_failed = run_parallel_analysis(args, tasks, out_path, automator)
+        if args.unsafe_parallel_review:
+            automator = BrowserAutomator(
+                headless=args.headless,
+                proxy=proxy,
+                submission_coordinator=None,
+                controlled_submission=False,
+            )
+            total_processed, total_failed = run_parallel_analysis(args, tasks, out_path, automator)
+        elif args.prewarm_standby and len(tasks) >= 2:
+            automator = BrowserAutomator(headless=args.headless, proxy=proxy)
+            total_processed, total_failed = run_controlled_pipeline_analysis(args, tasks, out_path, automator)
+        else:
+            submission_coordinator = ReviewSubmissionCoordinator(
+                base_interval=args.submit_interval,
+                cooldown_seconds=args.submit_cooldown,
+            )
+            automator = BrowserAutomator(
+                headless=args.headless,
+                proxy=proxy,
+                submission_coordinator=submission_coordinator,
+                controlled_submission=True,
+            )
+            total_processed, total_failed = run_parallel_analysis(args, tasks, out_path, automator)
 
     elapsed = time.time() - start_time
-    print("\n=== Done ===")
-    print(f"  Succeeded: {total_processed}")
-    print(f"  Failed:    {total_failed}")
-    print(f"  Time:      {elapsed:.2f}s")
+    log_line("=== Done ===")
+    log_line(f"  Succeeded: {total_processed}")
+    log_line(f"  Failed:    {total_failed}")
+    log_line(f"  Time:      {elapsed:.2f}s")
     if not args.dry_run:
-        print(f"  Output:    {out_path}")
-    print("============")
+        log_line(f"  Output:    {out_path}")
+    log_line("============")
 
 
 if __name__ == "__main__":

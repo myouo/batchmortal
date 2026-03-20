@@ -27,6 +27,9 @@ def parse_args():
     return parser.parse_args()
 
 def main():
+    import time
+    start_time = time.time()
+    
     args = parse_args()
     
     modes = [int(m.strip()) for m in args.modes.split(',')]
@@ -134,9 +137,13 @@ def main():
             total_processed += 1
             print(f"  ✓ rating={parsed.get('rating', 'N/A')}  AI一致率={parsed.get('aiConsistencyRate', 'N/A')}")
 
+    end_time = time.time()
+    elapsed = end_time - start_time
+    
     print(f"\n═══ Done ═════════════════════════════════════════════════")
     print(f"  Succeeded: {total_processed}")
     print(f"  Failed:    {total_failed}")
+    print(f"  Time:      {elapsed:.2f}s")
     if not args.dry_run:
         print(f"  Output:    {out_path}")
     print(f"══════════════════════════════════════════════════════════\n")

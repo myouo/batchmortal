@@ -1,10 +1,13 @@
 import requests
 import urllib.parse
 import logging
+import time
 
 BASE_URL = 'https://5-data.amae-koromo.com/api/v2/pl4'
 OFFSET_2 = [1117113, 1358437]
 XOR_CODE_2 = 86216345
+REQUEST_HEADERS = {"Accept": "application/json"}
+SESSION = requests.Session()
 
 def acc2match(account_id: int) -> int:
     """
@@ -18,7 +21,7 @@ def search_player(nickname: str) -> int:
     """
     url = f"{BASE_URL}/search_player/{urllib.parse.quote(nickname)}?limit=20&tag=all"
     try:
-        res = requests.get(url, timeout=15, headers={"Accept": "application/json"})
+        res = SESSION.get(url, timeout=15, headers=REQUEST_HEADERS)
         res.raise_for_status()
         data = res.json()
     except Exception as e:
@@ -33,9 +36,6 @@ def search_player(nickname: str) -> int:
         
     logging.info(f"[API] Found player: '{player['nickname']}' (account_id={player['id']})")
     return player["id"]
-
-import time
-
 def get_player_records(account_id: int, limit: int, mode: int) -> list:
     """
     Fetch a player's recent game records for the given mode.
@@ -45,7 +45,7 @@ def get_player_records(account_id: int, limit: int, mode: int) -> list:
     
     url = f"{BASE_URL}/player_records/{account_id}/{end_ms}/{start_ms}?limit={limit}&mode={mode}&descending=true"
     try:
-        res = requests.get(url, timeout=15, headers={"Accept": "application/json"})
+        res = SESSION.get(url, timeout=15, headers=REQUEST_HEADERS)
         res.raise_for_status()
         data = res.json()
     except Exception as e:

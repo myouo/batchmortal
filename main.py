@@ -107,62 +107,34 @@ def main():
             print(f"  [dry-run] PaipuURL: {t['paipu_url']}")
             total_processed += 1
     elif tasks:
+        import queue
+        import threading
+        
         max_workers = min(args.workers, len(tasks))
-        print(f"\n▶ Starting parallel analysis with {max_workers} workers ────────────────────────────────")
+        print(f"\n▶ Starting parallel analysis with {max_workers} persistent browsers ────────────────────────────────")
         
-        MAX_RETRIES = 2
+        task_queue = queue.Queue()
+        result_queue = queue.Queue()
         
-        while tasks:
-            if len(tasks) > 0:
-                print(f"\n▶ Executing batch of {len(tasks)} tasks...")
-            next_tasks = []
+        for t in tasks:
+            t['model_tag'] = args.model_tag
+            t['save_screenshot'] = args.save_screenshot
+            task_queue.put(t)
             
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_task = {
-                    executor.submit(
-                        automator.analyze_game,
-                        t['paipu_url'],
-                        t['uuid'],
-                        args.model_tag,
-                        t['mode_dir'],
-                        save_screenshot=args.save_screenshot
-                    ): t for t in tasks
-                }
+        def reporter():
+            nonlocal total_processed, total_failed
+            processed_count = 0
+            expected_count = len(tasks)
+            while processed_count < expected_count:
+                res = result_queue.get()
+                task = res['task']
+                uuid = task['uuid']
+                mode = task['mode']
+                paipu_url = task['paipu_url']
                 
-                for future in as_completed(future_to_task):
-                    t = future_to_task[future]
-                    uuid = t['uuid']
-                    mode = t['mode']
-                    paipu_url = t['paipu_url']
-                    
-                    try:
-                        result = future.result()
-                    except Exception as exc:
-                        logging.error(f"  [ERROR] {uuid} generated an exception: {exc}")
-                        result = None
-                    
-                    if not result:
-                        t['retries'] = t.get('retries', 0) + 1
-                        if t['retries'] <= MAX_RETRIES:
-                            logging.warning(f"  [RETRY] Analysis failed for {uuid}. Added back to queue (Retry {t['retries']}/{MAX_RETRIES}).")
-                            next_tasks.append(t)
-                        else:
-                            total_failed += 1
-                            logging.error(f"  [SKIP] Analysis permanently failed for {uuid} after {MAX_RETRIES} retries.")
-                            
-                            append_row(out_path, {
-                                'nickname': args.nickname,
-                                'mode': mode,
-                                'uuid': uuid,
-                                'paipuUrl': paipu_url,
-                                'modelTag': args.model_tag,
-                                'rating': 'ERROR',
-                                'timestamp': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
-                            }, args.output)
-                        continue
-                        
+                if res['status'] == 'success':
+                    result = res['result']
                     parsed = parse_metadata(result['metadata'])
-                    
                     append_row(out_path, {
                         'nickname': args.nickname,
                         'mode': mode,
@@ -181,11 +153,37 @@ def main():
                         'screenshotPath': result.get('screenshotPath', ''),
                         'timestamp': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
                     }, args.output)
-                    
                     total_processed += 1
                     print(f"  ✓ rating={parsed.get('rating', 'N/A')}  AI一致率={parsed.get('aiConsistencyRate', 'N/A')} ({uuid})")
-                    
-            tasks = next_tasks
+                else:
+                    total_failed += 1
+                    append_row(out_path, {
+                        'nickname': args.nickname,
+                        'mode': mode,
+                        'uuid': uuid,
+                        'paipuUrl': paipu_url,
+                        'modelTag': args.model_tag,
+                        'rating': 'ERROR',
+                        'timestamp': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+                    }, args.output)
+                
+                processed_count += 1
+                result_queue.task_done()
+                
+        reporter_thread = threading.Thread(target=reporter)
+        reporter_thread.start()
+        
+        threads = []
+        for _ in range(max_workers):
+            th = threading.Thread(target=automator.run_worker, args=(task_queue, result_queue))
+            th.start()
+            threads.append(th)
+            
+        task_queue.join()
+        reporter_thread.join()
+        
+        for th in threads:
+            th.join()
 
     end_time = time.time()
     elapsed = end_time - start_time

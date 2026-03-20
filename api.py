@@ -34,11 +34,13 @@ def search_player(nickname: str) -> int:
     logging.info(f"[API] Found player: '{player['nickname']}' (account_id={player['id']})")
     return player["id"]
 
+import time
+
 def get_player_records(account_id: int, limit: int, mode: int) -> list:
     """
     Fetch a player's recent game records for the given mode.
     """
-    end_ms = 1774002119999
+    end_ms = int(time.time() * 1000)
     start_ms = 1262304000000
     
     url = f"{BASE_URL}/player_records/{account_id}/{end_ms}/{start_ms}?limit={limit}&mode={mode}&descending=true"

@@ -59,13 +59,23 @@ class ReviewSubmissionCoordinator:
             self.next_submit_time = max(time.monotonic(), self.next_submit_time) + self.current_interval
             self.condition.notify_all()
 
-    def report_outcome(self, uuid, success, error_text="", token_wait_seconds=0.0, result_wait_seconds=0.0):
+    def report_outcome(
+        self,
+        uuid,
+        success,
+        error_text="",
+        token_wait_seconds=0.0,
+        submit_wait_seconds=0.0,
+        result_wait_seconds=0.0,
+    ):
         del uuid
         with self.condition:
             if success:
                 self.consecutive_failures = 0
-                if token_wait_seconds <= 8 and result_wait_seconds <= 18:
+                if token_wait_seconds <= 8 and submit_wait_seconds <= 8 and result_wait_seconds <= 18:
                     self.current_interval = max(self.base_interval, self.current_interval - 0.5)
+                elif token_wait_seconds >= 6 or submit_wait_seconds >= 10 or result_wait_seconds >= 18:
+                    self.current_interval = min(self.max_interval, self.current_interval + 1.5)
             else:
                 normalized = (error_text or "").lower()
                 if any(
@@ -74,6 +84,7 @@ class ReviewSubmissionCoordinator:
                         "captcha",
                         "turnstile",
                         "rate limit",
+                        "stalled before token issuance",
                         "timed out waiting for turnstile token",
                         "review submission never left the form page",
                         "timed out waiting for review results",
@@ -183,6 +194,53 @@ class BrowserAutomator:
                 logging.error(f"  [FATAL] Browser spawn failed: {spawn_err}. Retrying in 5s...")
                 time.sleep(5)
 
+    def iter_alternating_windows(self, tasks, max_retries=3):
+        pending = deque(tasks)
+
+        with SB(uc=True, headless=self.headless, proxy=self.proxy) as sb:
+            slots = [
+                {
+                    "name": "window-a",
+                    "handle": sb.driver.current_window_handle,
+                    "ready": False,
+                },
+                {
+                    "name": "window-b",
+                    "handle": None,
+                    "ready": False,
+                },
+            ]
+
+            slot_index = 0
+            while pending:
+                task = pending.popleft()
+                slot = slots[slot_index]
+                slot_index = (slot_index + 1) % len(slots)
+
+                try:
+                    started_at = time.perf_counter()
+                    self._ensure_rotation_slot_ready(sb, slot, task["uuid"])
+                    result = self._analyze_loaded_form(
+                        sb,
+                        task,
+                        started_at=started_at,
+                        ready_message=f"{slot['name']} ready for assigned task",
+                    )
+                    yield {"status": "success", "task": task, "result": result}
+                except Exception as exc:
+                    failure_event = self._handle_rotation_failure(
+                        sb,
+                        slot,
+                        task,
+                        exc,
+                        max_retries,
+                        pending,
+                    )
+                    if failure_event:
+                        yield failure_event
+                finally:
+                    slot["ready"] = False
+
     def iter_dual_window_pipeline(self, tasks, max_retries=3):
         pending = deque(tasks)
 
@@ -208,6 +266,9 @@ class BrowserAutomator:
                 if active_slot["task"] is None:
                     if standby_slot["task"] and standby_slot["prepared"]:
                         active_slot, standby_slot = standby_slot, active_slot
+                    elif standby_slot["task"] and not standby_slot["prepared"]:
+                        self._reset_pipeline_slot(standby_slot)
+                        continue
                     elif pending:
                         task = pending.popleft()
                         failure_event = self._prepare_pipeline_slot(sb, active_slot, task, max_retries, pending)
@@ -254,6 +315,19 @@ class BrowserAutomator:
                     active_slot, standby_slot = standby_slot, active_slot
 
     def analyze_single(self, sb, task):
+        uuid = task["uuid"]
+        started_at = time.perf_counter()
+
+        logging.info(f"[{uuid}] Opening fresh review form")
+        self._open_fresh_review_page(sb, uuid)
+        return self._analyze_loaded_form(
+            sb,
+            task,
+            started_at=started_at,
+            ready_message="Form ready and waiting for submit slot",
+        )
+
+    def _analyze_loaded_form(self, sb, task, started_at, ready_message):
         paipu_url = task["paipu_url"]
         uuid = task["uuid"]
         model_tag = task["model_tag"]
@@ -262,16 +336,14 @@ class BrowserAutomator:
 
         os.makedirs(output_dir, exist_ok=True)
         screenshot_path = os.path.join(output_dir, f"{uuid}.png")
-        started_at = time.perf_counter()
         token_wait_seconds = 0.0
+        submit_wait_seconds = 0.0
         result_wait_seconds = 0.0
         submit_slot_held = False
         submit_slot_released = False
 
-        logging.info(f"[{uuid}] Opening fresh review form")
-        self._open_fresh_review_page(sb, uuid)
         self._populate_form(sb, paipu_url, model_tag)
-        logging.info(f"[{uuid}] Form prewarmed and waiting for submit slot")
+        logging.info(f"[{uuid}] {ready_message}")
 
         try:
             if self.submission_coordinator is not None:
@@ -288,8 +360,10 @@ class BrowserAutomator:
             token_wait_seconds = time.perf_counter() - token_started_at
             logging.info(f"[{uuid}] Turnstile token ready in {token_wait_seconds:.1f}s")
 
+            submit_started_at = time.perf_counter()
             self._submit_review(sb, uuid)
             self._wait_for_submission_departure_or_error(sb, uuid, timeout=15)
+            submit_wait_seconds = time.perf_counter() - submit_started_at
             if self.submission_coordinator is not None:
                 self.submission_coordinator.release_submit_slot(uuid, token_wait_seconds=token_wait_seconds)
                 submit_slot_released = True
@@ -305,6 +379,7 @@ class BrowserAutomator:
                     uuid,
                     success=True,
                     token_wait_seconds=token_wait_seconds,
+                    submit_wait_seconds=submit_wait_seconds,
                     result_wait_seconds=result_wait_seconds,
                 )
             logging.info(
@@ -330,6 +405,7 @@ class BrowserAutomator:
                     success=False,
                     error_text=str(exc),
                     token_wait_seconds=token_wait_seconds,
+                    submit_wait_seconds=submit_wait_seconds,
                     result_wait_seconds=result_wait_seconds,
                 )
             raise
@@ -340,22 +416,56 @@ class BrowserAutomator:
                     token_wait_seconds=token_wait_seconds,
                 )
 
-    def _open_pipeline_tab(self, sb):
+    def _handle_rotation_failure(self, sb, slot, task, exc, max_retries, pending):
+        err_str = str(exc).lower()
+        logging.error(f"  [ERROR] {task['uuid']} exception: {exc}")
+
+        try:
+            self._switch_to_slot(sb, slot)
+            error_screenshot = os.path.join(task["mode_dir"], f"{task['uuid']}_error.png")
+            sb.save_screenshot(error_screenshot)
+        except Exception:
+            pass
+
+        if any(marker in err_str for marker in ("no such window", "closed", "invalid session", "disconnected")):
+            raise exc
+
+        task["retries"] = task.get("retries", 0) + 1
+        if task["retries"] <= max_retries:
+            logging.warning(
+                f"  [RETRY] Analysis failed for {task['uuid']}. "
+                f"Retrying ({task['retries']}/{max_retries}) on the next window turn."
+            )
+            pending.append(task)
+            return None
+
+        logging.error(
+            f"  [SKIP] Analysis permanently failed for {task['uuid']} after {max_retries} retries."
+        )
+        return {"status": "fail", "task": task}
+
+    def _open_pipeline_window(self, sb):
         current_handle = sb.driver.current_window_handle
-        existing_handles = set(sb.driver.window_handles)
-        sb.execute_script("window.open('about:blank', '_blank');")
+        try:
+            sb.driver.switch_to.new_window("window")
+            new_handle = sb.driver.current_window_handle
+            sb.driver.switch_to.window(current_handle)
+            return new_handle
+        except Exception:
+            existing_handles = set(sb.driver.window_handles)
+            sb.execute_script("window.open('about:blank', '_blank');")
 
-        deadline = time.time() + 5
-        while time.time() < deadline:
-            current_handles = set(sb.driver.window_handles)
-            new_handles = current_handles - existing_handles
-            if new_handles:
-                new_handle = new_handles.pop()
-                sb.driver.switch_to.window(current_handle)
-                return new_handle
-            time.sleep(0.2)
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                current_handles = set(sb.driver.window_handles)
+                new_handles = current_handles - existing_handles
+                if new_handles:
+                    new_handle = new_handles.pop()
+                    sb.driver.switch_to.window(current_handle)
+                    return new_handle
+                time.sleep(0.2)
 
-        raise RuntimeError("Could not open standby browser tab")
+        raise RuntimeError("Could not open standby browser window")
 
     def _prepare_pipeline_slot(self, sb, slot, task, max_retries, pending):
         try:
@@ -429,6 +539,7 @@ class BrowserAutomator:
         if any(marker in err_str for marker in ("no such window", "closed", "invalid session", "disconnected")):
             raise exc
 
+        self._reset_pipeline_slot(slot)
         task["retries"] = task.get("retries", 0) + 1
         if task["retries"] <= max_retries:
             logging.warning(
@@ -442,6 +553,12 @@ class BrowserAutomator:
             f"  [SKIP] Analysis permanently failed for {task['uuid']} after {max_retries} retries."
         )
         return {"status": "fail", "task": task}
+
+    def _reset_pipeline_slot(self, slot):
+        slot["task"] = None
+        slot["prepared"] = False
+        slot["started_at"] = 0.0
+        slot["submitted_at"] = 0.0
 
     def _switch_to_slot(self, sb, slot):
         handles = list(sb.driver.window_handles)
@@ -479,33 +596,111 @@ class BrowserAutomator:
         self._prepare_review_form(sb)
         self._poke_captcha(sb)
 
+    def _prime_rotation_slot(self, sb, slot, label):
+        if not slot.get("handle"):
+            self._spawn_rotation_window(sb, slot, label)
+        self._switch_to_slot(sb, slot)
+        logging.info(f"[{label}] Refreshing {slot['name']} back to review form")
+        self._open_fresh_review_page(sb, label)
+        self._refresh_slot_handle(sb, slot)
+        slot["ready"] = True
+
+    def _ensure_rotation_slot_ready(self, sb, slot, label):
+        if not slot.get("handle"):
+            self._spawn_rotation_window(sb, slot, label)
+        self._switch_to_slot(sb, slot)
+        if not slot.get("ready", False) or not self._is_review_form_ready(sb):
+            logging.info(f"[{label}] Preparing {slot['name']} for the next assigned task")
+            self._prime_rotation_slot(sb, label=label, slot=slot)
+            slot["ready"] = True
+        self._refresh_slot_handle(sb, slot)
+
+    def _is_review_form_ready(self, sb):
+        try:
+            return bool(
+                sb.execute_script(
+                    """
+                    const input = document.querySelector(arguments[0]);
+                    return !!(input && document.readyState !== 'loading');
+                    """,
+                    INPUT_SELECTOR,
+                )
+            )
+        except Exception:
+            return False
+
+    def _spawn_rotation_window(self, sb, slot, label):
+        current_handle = sb.driver.current_window_handle
+        existing_handles = set(sb.driver.window_handles)
+        logging.info(f"[{label}] Spawning {slot['name']} from the active review context")
+
+        try:
+            sb.execute_script("window.open(arguments[0], '_blank');", REVIEW_URL)
+        except Exception:
+            sb.driver.switch_to.new_window("window")
+            slot["handle"] = sb.driver.current_window_handle
+            self._open_fresh_review_page(sb, label)
+            self._refresh_slot_handle(sb, slot)
+            sb.driver.switch_to.window(current_handle)
+            return
+
+        deadline = time.time() + 8
+        while time.time() < deadline:
+            current_handles = set(sb.driver.window_handles)
+            new_handles = list(current_handles - existing_handles)
+            if new_handles:
+                slot["handle"] = new_handles[-1]
+                self._switch_to_slot(sb, slot)
+                logging.info(f"[{label}] {slot['name']} spawned successfully")
+                self._refresh_slot_handle(sb, slot)
+                try:
+                    sb.driver.switch_to.window(current_handle)
+                except Exception:
+                    pass
+                return
+            time.sleep(0.2)
+
+        raise RuntimeError(f"[{label}] Could not spawn {slot['name']}")
+
     def _open_fresh_review_page(self, sb, label):
-        current_url = ""
-        try:
-            current_url = sb.get_current_url()
-        except Exception:
+        last_exc = None
+        for attempt in range(2):
             current_url = ""
+            try:
+                current_url = sb.get_current_url()
+            except Exception:
+                current_url = ""
 
-        try:
-            if "mjai.ekyu.moe" in current_url:
+            try:
+                if "mjai.ekyu.moe" in current_url:
+                    sb.execute_script("window.location.replace(arguments[0]);", REVIEW_URL)
+                else:
+                    sb.uc_open_with_reconnect(REVIEW_URL, reconnect_time=2)
+            except Exception:
                 sb.open(REVIEW_URL)
-            else:
-                sb.uc_open_with_reconnect(REVIEW_URL, reconnect_time=2)
-        except Exception:
-            sb.open(REVIEW_URL)
 
-        try:
-            sb.wait_for_ready_state_complete()
-        except Exception:
-            pass
+            try:
+                sb.wait_for_ready_state_complete()
+            except Exception:
+                pass
 
-        try:
-            sb.wait_for_element(INPUT_SELECTOR, timeout=20)
-        except Exception:
-            logging.warning(f"[{label}] Review page not ready, refreshing once...")
-            sb.refresh()
-            time.sleep(2)
-            sb.wait_for_element(INPUT_SELECTOR, timeout=20)
+            try:
+                sb.wait_for_element(INPUT_SELECTOR, timeout=20)
+                return
+            except Exception as exc:
+                last_exc = exc
+                if attempt == 0:
+                    logging.warning(f"[{label}] Review page not ready, retrying open once...")
+                    try:
+                        sb.execute_script("window.location.replace(arguments[0]);", REVIEW_URL)
+                    except Exception:
+                        try:
+                            sb.refresh()
+                        except Exception:
+                            pass
+                    time.sleep(2)
+
+        raise last_exc
 
     def _prepare_review_form(self, sb):
         sb.execute_script(
@@ -592,15 +787,26 @@ class BrowserAutomator:
     def _wait_for_turnstile_token(self, sb, uuid, timeout):
         deadline = time.time() + timeout
         next_poke_at = time.time() + 8
+        recoveries = 0
 
         while time.time() < deadline:
             state = self._read_review_state(sb)
             if state["token_length"] > 0:
                 return
 
+            if state["page_text"] and (
+                "invalid captcha response" in state["page_text"]
+                or "timeout-or-duplicate" in state["page_text"]
+            ):
+                raise RuntimeError(f"[{uuid}] Turnstile token was rejected before submission")
+
             if time.time() >= next_poke_at:
+                recoveries += 1
                 logging.info(f"[{uuid}] Turnstile token still missing, retrying captcha click")
+                self._recover_turnstile_widget(sb)
                 self._poke_captcha(sb)
+                if recoveries >= 2:
+                    raise RuntimeError(f"[{uuid}] Turnstile widget stalled before token issuance")
                 next_poke_at = time.time() + 8
 
             time.sleep(0.5)
@@ -732,5 +938,42 @@ class BrowserAutomator:
     def _poke_captcha(self, sb):
         try:
             sb.uc_gui_click_captcha()
+        except Exception:
+            pass
+
+    def _recover_turnstile_widget(self, sb):
+        try:
+            sb.execute_script(
+                """
+                const token = document.querySelector(arguments[0]);
+                if (token) {
+                  token.value = '';
+                }
+
+                const submit = document.querySelector(arguments[1]);
+                if (submit) {
+                  submit.disabled = false;
+                  submit.classList.remove('is-loading');
+                  submit.style.pointerEvents = '';
+                }
+
+                if (window.turnstile) {
+                  const widgets = Array.from(document.querySelectorAll('.cf-turnstile'));
+                  for (const widget of widgets) {
+                    const widgetId = widget.getAttribute('data-widget-id');
+                    try {
+                      if (widgetId) {
+                        window.turnstile.reset(widgetId);
+                      } else {
+                        window.turnstile.reset();
+                      }
+                    } catch (e) {
+                    }
+                  }
+                }
+                """,
+                TURNSTILE_RESPONSE_SELECTOR,
+                SUBMIT_SELECTOR,
+            )
         except Exception:
             pass

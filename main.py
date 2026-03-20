@@ -66,7 +66,7 @@ def parse_args():
     parser.add_argument(
         "--prewarm-standby",
         action="store_true",
-        help="Experimental: keep one extra prewarmed browser ready while submissions stay serialized.",
+        help="Experimental: use two persistent windows and alternate focus between them for each task.",
     )
     parser.add_argument(
         "--retry",
@@ -207,7 +207,7 @@ def run_parallel_analysis(
     for task in tasks:
         task["model_tag"] = args.model_tag
         task["save_screenshot"] = args.save_screenshot
-    log_line("[Parallel] Starting serial analysis with 1 persistent browser")
+    log_line("[Serial] Starting analysis with 1 persistent browser")
 
     try:
         with SB(uc=True, headless=automator.headless, proxy=automator.proxy) as sb:
@@ -252,10 +252,10 @@ def run_controlled_pipeline_analysis(args, tasks: list[dict], out_path: str, aut
         task["model_tag"] = args.model_tag
         task["save_screenshot"] = args.save_screenshot
 
-    log_line("[Pipeline] Starting dual-window standby pipeline")
+    log_line("[Alternate] Starting two-window alternating review flow")
 
     try:
-        for result_event in automator.iter_dual_window_pipeline(tasks, max_retries=args.retry):
+        for result_event in automator.iter_alternating_windows(tasks, max_retries=args.retry):
             succeeded, failed = consume_result_event(args, writer, result_event)
             total_processed += succeeded
             total_failed += failed
@@ -306,7 +306,16 @@ def main():
             )
             total_processed, total_failed = run_parallel_analysis(args, tasks, out_path, automator)
         elif args.prewarm_standby and len(tasks) >= 2:
-            automator = BrowserAutomator(headless=args.headless, proxy=proxy)
+            submission_coordinator = ReviewSubmissionCoordinator(
+                base_interval=min(args.submit_interval, 1.0),
+                cooldown_seconds=args.submit_cooldown,
+            )
+            automator = BrowserAutomator(
+                headless=args.headless,
+                proxy=proxy,
+                submission_coordinator=submission_coordinator,
+                controlled_submission=True,
+            )
             total_processed, total_failed = run_controlled_pipeline_analysis(args, tasks, out_path, automator)
         else:
             submission_coordinator = ReviewSubmissionCoordinator(

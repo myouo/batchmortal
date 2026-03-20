@@ -28,7 +28,17 @@ class BrowserAutomator:
                     pass
 
                 # Pre-checking if page is block or needs extra time
-                sb.wait_for_element('input[name="log-url"]', timeout=30)
+                try:
+                    sb.wait_for_element('input[name="log-url"]', timeout=30)
+                except Exception:
+                    logging.warning(f"[{uuid}] Cloudflare challenge taking too long or page stuck, refreshing...")
+                    sb.refresh()
+                    time.sleep(2)
+                    try:
+                        sb.uc_gui_click_captcha()
+                    except Exception:
+                        pass
+                    sb.wait_for_element('input[name="log-url"]', timeout=45)
                 
                 # 2. Select Paipu URL Radio
                 sb.click('input[name="input-method"][value="log-url"]')

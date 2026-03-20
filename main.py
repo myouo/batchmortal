@@ -23,6 +23,7 @@ def parse_args():
     parser.add_argument('--flare-url', help='(Legacy) Ignore, FlareSolverr is replaced by SeleniumBase')
     parser.add_argument('--save-screenshot', action='store_true', help='Save screenshot of the results (default: False)')
     parser.add_argument('--output', choices=['csv', 'xlsx'], default='xlsx', help='Output format: csv or xlsx (default: xlsx)')
+    parser.add_argument('--proxy', help='Proxy URL (e.g. http://127.0.0.1:7890). If omitted, attempts to use system proxy.')
     return parser.parse_args()
 
 def main():
@@ -52,7 +53,18 @@ def main():
     total_processed = 0
     total_failed = 0
     
-    automator = BrowserAutomator(headless=args.headless)
+    import urllib.request
+    proxy = args.proxy
+    if not proxy:
+        sys_proxies = urllib.request.getproxies()
+        proxy = sys_proxies.get('https') or sys_proxies.get('http')
+
+    if proxy:
+        logging.info(f"[Proxy] Using proxy for browser: {proxy}")
+    else:
+        logging.info(f"[Proxy] No system proxy detected, running directly.")
+        
+    automator = BrowserAutomator(headless=args.headless, proxy=proxy)
     
     for mode in modes:
         print(f"\n▶ Processing mode={mode} ────────────────────────────────")

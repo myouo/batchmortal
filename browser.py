@@ -5,8 +5,9 @@ from bs4 import BeautifulSoup
 from seleniumbase import SB
 
 class BrowserAutomator:
-    def __init__(self, headless=True):
+    def __init__(self, headless=True, proxy=None):
         self.headless = headless
+        self.proxy = proxy
 
     def analyze_game(self, paipu_url: str, uuid: str, model_tag: str, output_dir: str, save_screenshot: bool = False):
         result = None
@@ -15,7 +16,7 @@ class BrowserAutomator:
         
         logging.info(f"[{uuid}] Launching SeleniumBase for {paipu_url}")
         
-        with SB(uc=True, headless=self.headless) as sb:
+        with SB(uc=True, headless=self.headless, proxy=self.proxy) as sb:
             try:
                 # 1. Navigate and handle Cloudflare (UC naturally handles it, but open_with_reconnect can help)
                 sb.uc_open_with_reconnect("https://mjai.ekyu.moe/zh-cn.html", reconnect_time=4)

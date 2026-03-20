@@ -120,17 +120,23 @@ def collect_tasks(account_id: int, modes: list[int], limit: int, output_root: st
 
         items = build_paipu_urls(records, account_id)
         mode_dir = os.path.join(output_root, f"mode_{mode}")
-        for index, item in enumerate(items, start=1):
+        for item in items:
             tasks.append(
                 {
-                    "idx": index,
-                    "total": len(items),
                     "mode": mode,
                     "uuid": item["uuid"],
                     "paipu_url": item["paipuUrl"],
                     "mode_dir": mode_dir,
                 }
             )
+
+    total_tasks = len(tasks)
+    for index, task in enumerate(tasks, start=1):
+        task["idx"] = index
+        task["total"] = total_tasks
+        short_url = task["uuid"].split("-")[-1]
+        task["log_prefix"] = f"[{index}/{total_tasks}][{short_url}]"
+
     return tasks
 
 
@@ -177,10 +183,9 @@ def consume_result_event(args, writer: ResultWriter, result_event: dict) -> tupl
             }
         )
         log_line(
-            "  OK "
+            f"{task['log_prefix']} OK "
             f"rating={parsed.get('rating', 'N/A')} "
-            f"match={parsed.get('aiConsistencyRate', 'N/A')} "
-            f"({task['uuid']})"
+            f"match={parsed.get('aiConsistencyRate', 'N/A')}"
         )
         return 1, 0
 
@@ -191,6 +196,7 @@ def consume_result_event(args, writer: ResultWriter, result_event: dict) -> tupl
             "rating": "ERROR",
         }
     )
+    log_line(f"{task['log_prefix']} ERROR")
     return 0, 1
 
 
@@ -219,17 +225,16 @@ def run_parallel_analysis(
                         result_event = {"status": "success", "task": task, "result": result}
                         break
                     except Exception as exc:
-                        logging.error(f"  [ERROR] {task['uuid']} exception: {exc}")
+                        prefix = task["log_prefix"]
+                        logging.error(f"{prefix} ERROR exception: {exc}")
                         if attempt < args.retry:
                             logging.warning(
-                                f"  [RETRY] Analysis failed for {task['uuid']}. "
-                                f"Retrying ({attempt + 1}/{args.retry}) with a fresh page load."
+                                f"{prefix} RETRY ({attempt + 1}/{args.retry}) with a fresh page load."
                             )
                             continue
 
                         logging.error(
-                            f"  [SKIP] Analysis permanently failed for {task['uuid']} "
-                            f"after {args.retry} retries."
+                            f"{prefix} SKIP permanently failed after {args.retry} retries."
                         )
                         result_event = {"status": "fail", "task": task}
                         break
@@ -293,8 +298,7 @@ def main():
 
     if args.dry_run:
         for task in tasks:
-            log_line(f"[{task['idx']}/{task['total']}] mode={task['mode']} uuid={task['uuid']}")
-            log_line(f"  [dry-run] PaipuURL: {task['paipu_url']}")
+            log_line(f"{task['log_prefix']} dry-run mode={task['mode']} paipu_url={task['paipu_url']}")
             total_processed += 1
     elif tasks:
         if args.unsafe_parallel_review:

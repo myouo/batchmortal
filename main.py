@@ -35,32 +35,12 @@ def parse_args():
     config = load_config(pre_args.config)
 
     parser = argparse.ArgumentParser(
-        description="Batch Mortal Analysis Script (Python/SeleniumBase Edition)"
-    )
-    parser.add_argument("--config", help="Path to config file (yaml or toml)")
-    parser.add_argument(
-        "nickname", nargs="?", default=config.get("nickname"), help="Player nickname"
-    )
-    parser.add_argument(
-        "--limit", type=int, default=config.get("limit", 10), help="Max records per mode (default: 10)"
-    )
-    parser.add_argument(
-        "--modes", default=str(config.get("modes", "9")), help="Comma-separated mode IDs (default: 9)"
-    )
-    parser.add_argument(
-        "--model-tag", default=config.get("model_tag", "4.1b"), help="Mortal network version (default: 4.1b)"
-    )
-    
-    # For boolean options, we need to carefully handle true/false from config versus flag presence
-    headless_default = config.get("headless", False)
-    parser.add_argument(
-        "--headless",
-        action="store_true" if not headless_default else "store_false",
-        default=headless_default,
-        help="Run browser headlessly",
-        dest="headless"
+        description="Batch Mortal Analysis Script (Python/SeleniumBase Edition)",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
+    # -- General Options --
+    parser.add_argument("--config", help="Path to config file (yaml or toml)")
     dry_run_default = config.get("dry_run", False)
     parser.add_argument(
         "--dry-run",
@@ -70,17 +50,54 @@ def parse_args():
         dest="dry_run"
     )
 
-    no_manual_verification_default = config.get("no_manual_verification", False)
-    parser.add_argument(
-        "--no-manual-verification",
-        action="store_true" if not no_manual_verification_default else "store_false",
-        default=no_manual_verification_default,
-        help="Legacy flag kept for compatibility",
+    # -- Target Options --
+    target_group = parser.add_argument_group("Target Options")
+    target_group.add_argument(
+        "-p", "-u", "--player", dest="player", default=config.get("player") or config.get("nickname"), help="Player nickname"
     )
-    parser.add_argument("--flare-url", default=config.get("flare_url"), help="Legacy flag kept for compatibility")
+    target_group.add_argument(
+        "-a", "--account-id", dest="account_id", type=int, default=config.get("account_id"), help="Directly specify player account ID"
+    )
 
+    # -- Analysis Options --
+    analysis_group = parser.add_argument_group("Analysis Options")
+    analysis_group.add_argument(
+        "--limit", type=int, default=config.get("limit", 10), help="Max records per mode"
+    )
+    analysis_group.add_argument(
+        "--modes", default=str(config.get("modes", "9")), help="Comma-separated mode IDs"
+    )
+    analysis_group.add_argument(
+        "--model-tag", default=config.get("model_tag", "4.1b"), help="Mortal network version"
+    )
+    analysis_group.add_argument(
+        "--retry", type=int, default=config.get("retry", 3), help="Retry failed review items this many times"
+    )
+
+    # -- Browser / Network Options --
+    browser_group = parser.add_argument_group("Browser & Network Options")
+    headless_default = config.get("headless", False)
+    browser_group.add_argument(
+        "--headless",
+        action="store_true" if not headless_default else "store_false",
+        default=headless_default,
+        help="Run browser headlessly",
+        dest="headless"
+    )
+    browser_group.add_argument(
+        "--proxy", default=config.get("proxy"), help="Proxy URL (e.g. http://127.0.0.1:7890)"
+    )
+
+    # -- Output Options --
+    output_group = parser.add_argument_group("Output Options")
+    output_group.add_argument(
+        "--output", choices=["csv", "xlsx"], default=config.get("output", "xlsx"), help="Output format"
+    )
+    output_group.add_argument(
+        "--plot", choices=["none", "html", "png", "both"], default=config.get("plot", "none"), help="Generate a plot after analysis"
+    )
     save_screenshot_default = config.get("save_screenshot", False)
-    parser.add_argument(
+    output_group.add_argument(
         "--save-screenshot",
         action="store_true" if not save_screenshot_default else "store_false",
         default=save_screenshot_default,
@@ -88,65 +105,50 @@ def parse_args():
         dest="save_screenshot"
     )
 
+    # -- Advanced Submission Options --
+    submit_group = parser.add_argument_group("Advanced Submission Options")
     unsafe_parallel_default = config.get("unsafe_parallel_review", False)
-    parser.add_argument(
+    submit_group.add_argument(
         "--unsafe-parallel-review",
         action="store_true" if not unsafe_parallel_default else "store_false",
         default=unsafe_parallel_default,
-        help="Allow concurrent review submissions.",
+        help="Allow concurrent review submissions",
         dest="unsafe_parallel_review"
     )
-
-    parser.add_argument(
-        "--submit-interval",
-        type=float,
-        default=config.get("submit_interval", 6.0),
-        help="Minimum spacing between controlled submissions in seconds.",
+    submit_group.add_argument(
+        "--submit-interval", type=float, default=config.get("submit_interval", 6.0), help="Minimum spacing between controlled submissions in seconds"
     )
-    parser.add_argument(
-        "--submit-cooldown",
-        type=float,
-        default=config.get("submit_cooldown", 30.0),
-        help="Cooldown seconds after repeated review failures.",
+    submit_group.add_argument(
+        "--submit-cooldown", type=float, default=config.get("submit_cooldown", 30.0), help="Cooldown seconds after repeated review failures"
     )
-
     prewarm_standby_default = config.get("prewarm_standby", False)
-    parser.add_argument(
+    submit_group.add_argument(
         "--prewarm-standby",
         action="store_true" if not prewarm_standby_default else "store_false",
         default=prewarm_standby_default,
-        help="Experimental: use two persistent windows and alternate focus.",
+        help="Experimental: use two persistent windows and alternate focus",
         dest="prewarm_standby"
     )
 
-    parser.add_argument(
-        "--retry",
-        type=int,
-        default=config.get("retry", 3),
-        help="Retry failed review items this many times.",
+    # -- Legacy Options --
+    legacy_group = parser.add_argument_group("Legacy Options")
+    no_manual_verification_default = config.get("no_manual_verification", False)
+    legacy_group.add_argument(
+        "--no-manual-verification",
+        action="store_true" if not no_manual_verification_default else "store_false",
+        default=no_manual_verification_default,
+        help="Legacy flag kept for compatibility",
     )
-    parser.add_argument(
-        "--output",
-        choices=["csv", "xlsx"],
-        default=config.get("output", "xlsx"),
-        help="Output format: csv or xlsx",
-    )
-    parser.add_argument(
-        "--proxy",
-        default=config.get("proxy"),
-        help="Proxy URL (e.g. http://127.0.0.1:7890).",
-    )
-    parser.add_argument(
-        "--plot",
-        choices=["none", "html", "png", "both"],
-        default=config.get("plot", "none"),
-        help="Generate a plot after analysis (none, html, png, both).",
+    legacy_group.add_argument(
+        "--flare-url", default=config.get("flare_url"), help="Legacy flag kept for compatibility"
     )
     
     args = parser.parse_args()
     
-    if not args.nickname:
-        parser.error("nickname is required either via positional argument or config file")
+    if not args.player and not args.account_id:
+        parser.error("-p/--player or -a/--account-id is required either via command line arguments or config file")
+        
+    args.target_name = args.player if args.player else str(args.account_id)
         
     return args
 
@@ -211,7 +213,8 @@ def collect_tasks(account_id: int, modes: list[int], limit: int, output_root: st
 
 def print_summary(args, modes):
     log_line("=== Batch Mortal Analysis ===")
-    log_line(f"  Player:    {args.nickname}")
+    target_display = args.target_name + (f" (ID: {args.account_id})" if args.account_id and args.target_name != str(args.account_id) else "")
+    log_line(f"  Target:    {target_display}")
     log_line(f"  Modes:     {modes}")
     log_line(f"  Limit:     {args.limit} per mode")
     log_line(f"  ModelTag:  {args.model_tag}")
@@ -225,7 +228,7 @@ def consume_result_event(args, writer: ResultWriter, result_event: dict) -> tupl
     task = result_event["task"]
     timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     base_row = {
-        "nickname": args.nickname,
+        "nickname": args.target_name,
         "mode": task["mode"],
         "uuid": task["uuid"],
         "paipuUrl": task["paipu_url"],
@@ -369,12 +372,15 @@ def main():
         ensure_uc_driver()
 
     try:
-        account_id = search_player(args.nickname)
+        if args.account_id:
+            account_id = args.account_id
+        else:
+            account_id = search_player(args.player)
     except Exception as exc:
         logging.error(f"[FATAL] {exc}")
         sys.exit(1)
 
-    output_root, out_path = build_output_path(args.nickname, args.output)
+    output_root, out_path = build_output_path(args.target_name, args.output)
     processed_uuids = get_processed_uuids(out_path, args.output)
     proxy = detect_proxy(args.proxy)
 
@@ -432,7 +438,7 @@ def main():
     log_line(f"  Time:      {elapsed:.2f}s")
     if not args.dry_run:
         log_line(f"  Output:    {out_path}")
-        plot_results(args.nickname, args.plot, args.output)
+        plot_results(args.target_name, args.plot, args.output)
     log_line("============")
 
 

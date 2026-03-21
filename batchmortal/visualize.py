@@ -10,7 +10,8 @@ def read_results(nickname: str, output_format: str = "xlsx") -> list[dict]:
         c if c.isalnum() or c in ("_", "-", "\u4e00", "\u9fa5") else "_"
         for c in nickname
     )
-    filepath = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", safe_nick, f"results.{output_format}")
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    filepath = os.path.join(base_dir, "results", safe_nick, f"results.{output_format}")
     
     if not os.path.exists(filepath):
         logging.warning(f"No results found for {nickname} at {filepath}")
@@ -56,18 +57,25 @@ def read_results(nickname: str, output_format: str = "xlsx") -> list[dict]:
 
 
 def calculate_regression(y_vals: list[float]) -> list[float]:
+    import numpy as np
     n = len(y_vals)
     if n <= 1:
         return y_vals
-    x = range(n)
-    mean_x = sum(x) / n
-    mean_y = sum(y_vals) / n
-    denom = sum((xi - mean_x) ** 2 for xi in x)
-    if denom == 0:
-        return [mean_y] * n
-    slope = sum((xi - mean_x) * (yi - mean_y) for xi, yi in zip(x, y_vals)) / denom
-    intercept = mean_y - slope * mean_x
-    return [slope * xi + intercept for xi in x]
+    
+    x = np.arange(n)
+    y = np.array(y_vals)
+    
+    # 动态选用多项式拟合阶数：如果数据量不足以支撑3阶（即曲线），则降级为低阶。
+    # 3阶多项式能完美刻画玩家处于“上升->瓶颈->回落/突破”的非线性波动周期。
+    deg = 3 if n >= 4 else (2 if n == 3 else 1)
+    
+    try:
+        coeffs = np.polyfit(x, y, deg)
+        poly = np.poly1d(coeffs)
+        return [float(val) for val in poly(x)]
+    except Exception:
+        # Fallback to horizontal mean if svd fails (extremely rare edge case)
+        return [sum(y_vals) / n] * n
 
 
 def generate_html(nickname: str, output_path: str, format_type: str = "xlsx") -> str | None:
@@ -182,7 +190,7 @@ def generate_html(nickname: str, output_path: str, format_type: str = "xlsx") ->
                 }}
             }},
             legend: {{
-                data: ['Rating', 'AI一致率'],
+                data: ['Rating', 'AI一致率', '趋势预测线 (Rating)'],
                 top: 55,
                 textStyle: {{ fontSize: 15, color: '#4b5563' }}
             }},
@@ -274,19 +282,17 @@ def generate_html(nickname: str, output_path: str, format_type: str = "xlsx") ->
                         shadowColor: 'rgba(0,0,0,0.15)',
                         shadowBlur: 20,
                         shadowOffsetY: 10
-                    }},
-                    markLine: {{
-                        silent: true,
-                        symbol: 'none',
-                        label: {{ show: false }},
-                        lineStyle: {{
-                            type: 'dashed',
-                            width: 2,
-                            color: '#fbbf24'
-                        }},
-                        data: [
-                            {{ type: 'average', name: '平均值' }}
-                        ]
+                    }}
+                }},
+                {{
+                    name: '趋势预测线 (Rating)',
+                    type: 'line',
+                    data: regressionData,
+                    symbol: 'none',
+                    lineStyle: {{
+                        type: 'dashed',
+                        width: 2,
+                        color: '#fbbf24'
                     }}
                 }},
                 {{
@@ -339,7 +345,8 @@ def plot_results(nickname: str, plot_mode: str, output_format: str = "xlsx"):
         c if c.isalnum() or c in ("_", "-", "\u4e00", "\u9fa5") else "_"
         for c in nickname
     )
-    output_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", safe_nick)
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    output_root = os.path.join(base_dir, "results", safe_nick)
     os.makedirs(output_root, exist_ok=True)
     
     html_path = os.path.join(output_root, f"report_{safe_nick}.html")

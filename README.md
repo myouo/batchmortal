@@ -92,6 +92,18 @@ python main.py 言乾 --limit 10 --modes 16 --headless
 python main.py 言乾 --limit 10 --modes 16 --headless --prewarm-standby
 ```
 
+## 绘图模块 (--plot)
+
+使用 `--plot html` 或 `both` 将会在产出数据后调用底层的可视化引擎生成 `report_<nickname>.html`。
+
+示例：
+```bash
+python main.py "main()" --limit 20 --modes 16 --headless --retry 3 --prewarm-standby --save-screenshot --plot both
+```
+
+![report_main__](assets/report_main__.png)
+
+
 ## 输出目录
 
 结果默认写入：

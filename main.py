@@ -6,12 +6,12 @@ import time
 import urllib.request
 from datetime import datetime, timezone
 
-from api import build_paipu_urls, get_player_records, search_player
-from browser import BrowserAutomator, ReviewSubmissionCoordinator
-from results import ResultWriter, parse_metadata, get_processed_uuids
-from visualize import plot_results
+from batchmortal.api import build_paipu_urls, get_player_records, search_player
+from batchmortal.browser import BrowserAutomator, ReviewSubmissionCoordinator
+from batchmortal.results import ResultWriter, parse_metadata, get_processed_uuids
+from batchmortal.visualize import plot_results
 from seleniumbase import SB
-from config import load_config
+from batchmortal.config import load_config
 
 
 def configure_logging():

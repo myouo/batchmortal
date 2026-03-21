@@ -1,4 +1,4 @@
-from api import acc2match
+from batchmortal.api import acc2match
 
 def test_acc2match():
     # From decode.py and JS selfTest: acc2match(15628582) should equal 63606719

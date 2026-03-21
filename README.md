@@ -22,7 +22,29 @@ pip install -r requirements.txt
 python main.py <玩家昵称> [选项]
 ```
 
-常见示例：
+### 使用配置文件（推荐）
+
+你可以通过配置文件来简化命令行输入。在项目根目录下创建一个 `config.yaml` 或 `config.toml` 文件（或参考 [`config.default.yaml`](config.default.yaml)）。
+
+示例 `config.yaml`：
+
+```yaml
+nickname: "言乾"
+limit: 10
+modes: "12"
+headless: true
+save_screenshot: true
+output: "xlsx"
+```
+
+带配置文件的运行方式：
+```bash
+python main.py
+```
+*(你也可以通过 `python main.py --config my_config.yaml` 手动指定配置文件位置。命令行传入的参数会覆盖配置文件中的同名设置。)*
+
+常见示例（不使用配置文件）：
+
 
 ```bash
 python main.py 言乾 --modes 12 --limit 1 --headless --save-screenshot --output xlsx

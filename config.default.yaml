@@ -1,0 +1,42 @@
+# ==== Batch Mortal 分析脚本配置文件 ====
+# 你可以通过命令行的 `--config <文件路径>` 来指定配置文件
+# 或者直接在主目录下放置名为 config.yaml 或 config.toml 的文件
+# 命令行传入的参数会覆盖这里的配置
+
+# 目标雀魂玩家昵称（必须提供，可以在命令行中通过位置参数指定，也可以在此处指定）
+nickname: "言乾"
+
+# 每个 mode 最多拉取多少条记录 (默认: 10)
+limit: 10
+
+# 逗号分隔的 mode 列表 (默认: "9")
+# 常见 mode: 9（四人金南）, 12（四人玉南）, 16（四人王座南）
+modes: "12"
+
+# Mortal 分析模型版本 (默认: "4.1b")
+model_tag: "4.1b"
+
+# 是否在后台以无头模式运行浏览器 (强烈推荐 true)
+headless: true
+
+# 是否只打印获取到的牌谱 URL，不启动浏览器进行分析 (测试用)
+dry_run: false
+
+# 是否保存分析结果页面的截图 (举报时有用)
+save_screenshot: true
+
+# 导出格式，可选 "xlsx" 或 "csv" (默认: "xlsx")
+output: "xlsx"
+
+# 失败重试次数，分析出错时会刷新重新尝试 (默认: 3)
+retry: 3
+
+# 指定浏览器的代理服务器，例如 "http://127.0.0.1:7890"
+# 如果留空或注释掉，会自动尝试检测系统代理
+# proxy: "http://127.0.0.1:7890"
+
+# 实验性功能：双窗口接力机制 (默认: false)
+prewarm_standby: true
+
+# 危险的高并发请求，容易导致Cloudflare卡盾拦截 (弃用，推荐置空或保留为false)
+unsafe_parallel_review: false

@@ -10,6 +10,7 @@ from api import build_paipu_urls, get_player_records, search_player
 from browser import BrowserAutomator, ReviewSubmissionCoordinator
 from results import ResultWriter, parse_metadata
 from seleniumbase import SB
+from config import load_config
 
 
 def configure_logging():
@@ -26,65 +27,121 @@ def log_line(message=""):
 
 
 def parse_args():
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--config", help="Path to config file (yaml or toml)")
+    pre_args, _ = pre_parser.parse_known_args()
+
+    config = load_config(pre_args.config)
+
     parser = argparse.ArgumentParser(
         description="Batch Mortal Analysis Script (Python/SeleniumBase Edition)"
     )
-    parser.add_argument("nickname", help="Player nickname")
-    parser.add_argument("--limit", type=int, default=10, help="Max records per mode (default: 10)")
-    parser.add_argument("--modes", default="9", help="Comma-separated mode IDs (default: 9)")
-    parser.add_argument("--model-tag", default="4.1b", help="Mortal network version (default: 4.1b)")
-    parser.add_argument("--headless", action="store_true", help="Run browser headlessly")
-    parser.add_argument("--dry-run", action="store_true", help="Only print URLs, skip browser")
+    parser.add_argument("--config", help="Path to config file (yaml or toml)")
+    parser.add_argument(
+        "nickname", nargs="?", default=config.get("nickname"), help="Player nickname"
+    )
+    parser.add_argument(
+        "--limit", type=int, default=config.get("limit", 10), help="Max records per mode (default: 10)"
+    )
+    parser.add_argument(
+        "--modes", default=str(config.get("modes", "9")), help="Comma-separated mode IDs (default: 9)"
+    )
+    parser.add_argument(
+        "--model-tag", default=config.get("model_tag", "4.1b"), help="Mortal network version (default: 4.1b)"
+    )
+    
+    # For boolean options, we need to carefully handle true/false from config versus flag presence
+    headless_default = config.get("headless", False)
+    parser.add_argument(
+        "--headless",
+        action="store_true" if not headless_default else "store_false",
+        default=headless_default,
+        help="Run browser headlessly",
+        dest="headless"
+    )
+
+    dry_run_default = config.get("dry_run", False)
+    parser.add_argument(
+        "--dry-run",
+        action="store_true" if not dry_run_default else "store_false",
+        default=dry_run_default,
+        help="Only print URLs, skip browser",
+        dest="dry_run"
+    )
+
+    no_manual_verification_default = config.get("no_manual_verification", False)
     parser.add_argument(
         "--no-manual-verification",
-        action="store_true",
+        action="store_true" if not no_manual_verification_default else "store_false",
+        default=no_manual_verification_default,
         help="Legacy flag kept for compatibility",
     )
-    parser.add_argument("--flare-url", help="Legacy flag kept for compatibility")
+    parser.add_argument("--flare-url", default=config.get("flare_url"), help="Legacy flag kept for compatibility")
+
+    save_screenshot_default = config.get("save_screenshot", False)
     parser.add_argument(
         "--save-screenshot",
-        action="store_true",
-        help="Save screenshot of the results (default: False)",
+        action="store_true" if not save_screenshot_default else "store_false",
+        default=save_screenshot_default,
+        help="Save screenshot of the results",
+        dest="save_screenshot"
     )
+
+    unsafe_parallel_default = config.get("unsafe_parallel_review", False)
     parser.add_argument(
         "--unsafe-parallel-review",
-        action="store_true",
-        help="Allow concurrent review submissions. Faster on paper, but often slower in practice due to Turnstile retries.",
+        action="store_true" if not unsafe_parallel_default else "store_false",
+        default=unsafe_parallel_default,
+        help="Allow concurrent review submissions.",
+        dest="unsafe_parallel_review"
     )
+
     parser.add_argument(
         "--submit-interval",
         type=float,
-        default=6.0,
-        help="Minimum spacing between controlled submissions in seconds (default: 6).",
+        default=config.get("submit_interval", 6.0),
+        help="Minimum spacing between controlled submissions in seconds.",
     )
     parser.add_argument(
         "--submit-cooldown",
         type=float,
-        default=30.0,
-        help="Cooldown seconds after repeated review failures in controlled mode (default: 30).",
+        default=config.get("submit_cooldown", 30.0),
+        help="Cooldown seconds after repeated review failures.",
     )
+
+    prewarm_standby_default = config.get("prewarm_standby", False)
     parser.add_argument(
         "--prewarm-standby",
-        action="store_true",
-        help="Experimental: use two persistent windows and alternate focus between them for each task.",
+        action="store_true" if not prewarm_standby_default else "store_false",
+        default=prewarm_standby_default,
+        help="Experimental: use two persistent windows and alternate focus.",
+        dest="prewarm_standby"
     )
+
     parser.add_argument(
         "--retry",
         type=int,
-        default=3,
-        help="Retry failed review items this many times with a fresh page load (default: 3).",
+        default=config.get("retry", 3),
+        help="Retry failed review items this many times.",
     )
     parser.add_argument(
         "--output",
         choices=["csv", "xlsx"],
-        default="xlsx",
-        help="Output format: csv or xlsx (default: xlsx)",
+        default=config.get("output", "xlsx"),
+        help="Output format: csv or xlsx",
     )
     parser.add_argument(
         "--proxy",
-        help="Proxy URL (e.g. http://127.0.0.1:7890). If omitted, attempts to use system proxy.",
+        default=config.get("proxy"),
+        help="Proxy URL (e.g. http://127.0.0.1:7890).",
     )
-    return parser.parse_args()
+    
+    args = parser.parse_args()
+    
+    if not args.nickname:
+        parser.error("nickname is required either via positional argument or config file")
+        
+    return args
 
 
 def build_output_path(nickname: str, output_format: str) -> tuple[str, str]:

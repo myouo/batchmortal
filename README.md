@@ -19,7 +19,9 @@ pip install -r requirements.txt
 ## 基本用法
 
 ```bash
-python main.py <玩家昵称> [选项]
+python main.py -p <玩家昵称> [选项]
+# 或者
+python main.py -a <数字账号ID> [选项]
 ```
 
 ### 使用配置文件（推荐）
@@ -47,30 +49,53 @@ python main.py
 
 
 ```bash
-python main.py 言乾 --modes 12 --limit 1 --headless --save-screenshot --output xlsx
+python main.py -p 言乾 --modes 12 --limit 1 --headless --save-screenshot --output xlsx
 ```
 
 ## 参数说明
 
+### Target Options (目标参数)
 | 参数 | 默认值 | 说明 |
 | :--- | :--- | :--- |
-| `nickname` | 无 | 目标雀魂昵称，位置参数 |
+| `-p`, `--player` | 无 | 目标雀魂玩家昵称（必须提供 `-p` 或 `-a`） |
+| `-a`, `--account-id`| 无 | 直接指定玩家数字账号 ID。当与 `-p` 同时提供时，实际拉取以 `-a` 为准，但程序的目标名称仍沿用 `-p` 提供的昵称。若仅提供 `-a`，程序会通过 API 尝试获取真实昵称。 |
+
+### Analysis Options (分析参数)
+| 参数 | 默认值 | 说明 |
+| :--- | :--- | :--- |
 | `--limit` | `10` | 每个 mode 最多拉取多少条记录 |
 | `--modes` | `9` | 逗号分隔的 mode 列表，例如 `9（四人金南）,12（四人玉南）,16（四人王座南）` |
-| `--model-tag` | `4.1b` | Mortal 分析模型版本（未测试） |
-| `--plot` | `none` | 生成折线图：`none`, `html`, `png`, 或 `both`。默认不生成 |
-| `--headless` | `False` | 后台无界面运行浏览器（推荐） |
-| `--dry-run` | `False` | 只拉取并打印牌谱 URL，不启动浏览器 |
-| `--save-screenshot` | `False` | 保存分析结果页面截图（举报时可用） |
-| `--output` | `xlsx` | 导出格式，可选 `xlsx` 或 `csv`（默认xlsx） |
+| `--model-tag` | `4.1b` | Mortal 分析模型版本 |
 | `--retry` | `3` | 失败条目的重试次数。每次重试都会重新打开分析页并重新提交 |
-| `--prewarm-standby` | `False` | 实验功能。使用两个持久窗口轮流接力，每次只让当前焦点窗口完整处理一条任务，完成后刷新回分析页，再切到另一个窗口继续（推荐尝试） |
+
+### Browser & Network Options (浏览器与网络)
+| 参数 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `--headless` | `False` | 后台无界面运行浏览器（强烈推荐） |
 | `--proxy` | 系统代理 | 指定浏览器代理；不传时尝试自动读取系统代理 |
-| `--unsafe-parallel-review` | `False` | 允许并发提交 review。理论上更快，但在单代理环境下通常更慢，也更容易触发 Turnstile 重试（已弃用，不推荐） |
-| `--submit-interval` | `6` | 受控提交模式下，两次提交之间的最小间隔秒数（已弃用，不推荐） |
-| `--submit-cooldown` | `30` | 受控提交模式下，连续失败后的冷却秒数（已弃用，不推荐） |
-| `--no-manual-verification` | `False` | 兼容旧脚本保留参数，当前无实际作用（已弃用） |
-| `--flare-url` | 无 | 兼容旧脚本保留参数，当前无实际作用（已弃用） |
+
+### Output Options (输出与绘图)
+| 参数 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `--output` | `xlsx` | 导出格式，可选 `xlsx` 或 `csv`（默认xlsx） |
+| `--plot` | `none` | 生成折线图：`none`, `html`, `png`, 或 `both`。默认不生成 |
+| `--save-screenshot` | `False` | 保存分析结果页面截图（举报时可用） |
+
+### Advanced Submission Options (高级配置)
+| 参数 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `--unsafe-parallel-review` | `False` | 允许并发提交 review。理论上更快，但在单代理环境下通常易失败（已弃用，不推荐） |
+| `--submit-interval` | `6` | 受控模式下，两次提交之间的最小间隔秒数（已弃用，不推荐） |
+| `--submit-cooldown` | `30` | 受控模式下，连续失败后的冷却秒数（已弃用，不推荐） |
+| `--prewarm-standby` | `False` | 实验功能。使用两个持久窗口轮流接力，每次只让当前焦点窗口完整处理一条任务（推荐尝试） |
+
+### General / Legacy Options (通用及历史参数)
+| 参数 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `--config` | 无 | 指定配置文件路径（支持 yaml/toml），命令行参数会覆盖配置项 |
+| `--dry-run` | `False` | 只拉取并打印牌谱 URL，不启动浏览器 |
+| `--no-manual-verification` | `False` | 兼容旧脚本保留参数，当前无作用（已弃用） |
+| `--flare-url` | 无 | 兼容旧脚本保留参数，当前无作用（已弃用） |
 
 ## 运行模式建议
 
@@ -81,7 +106,7 @@ python main.py 言乾 --modes 12 --limit 1 --headless --save-screenshot --output
 推荐先从默认模式开始：
 
 ```bash
-python main.py 言乾 --limit 10 --modes 16 --headless
+python main.py -p 言乾 --limit 10 --modes 16 --headless
 ```
 
 如果你要测试实验性的双窗口轮转：
@@ -89,7 +114,7 @@ python main.py 言乾 --limit 10 --modes 16 --headless
 注意：这是实验路径，建议只在你已经拿到默认串行基线后再做对比测试。
 
 ```bash
-python main.py 言乾 --limit 10 --modes 16 --headless --prewarm-standby
+python main.py -p 言乾 --limit 10 --modes 16 --headless --prewarm-standby
 ```
 
 ## 绘图模块 (--plot)
@@ -98,7 +123,7 @@ python main.py 言乾 --limit 10 --modes 16 --headless --prewarm-standby
 
 示例：
 ```bash
-python main.py "main()" --limit 20 --modes 16 --headless --retry 3 --prewarm-standby --save-screenshot --plot both
+python main.py -p "main()" --limit 20 --modes 16 --headless --retry 3 --prewarm-standby --save-screenshot --plot both
 ```
 
 ![report_main__](assets/report_main__.png)

@@ -341,6 +341,22 @@ def run_controlled_pipeline_analysis(args, tasks: list[dict], out_path: str, aut
     return total_processed, total_failed
 
 
+def ensure_uc_driver():
+    import seleniumbase
+    sb_dir = seleniumbase.__path__[0]
+    drivers_dir = os.path.join(sb_dir, 'drivers')
+    uc_name = 'uc_driver.exe' if os.name == 'nt' else 'uc_driver'
+    if not os.path.exists(os.path.join(drivers_dir, uc_name)):
+        logging.warning("uc_driver not found locally. Preparing to install via domestic mirror...")
+        try:
+            import install_uc_driver
+            install_uc_driver.install_uc_driver()
+        except ImportError:
+            logging.error("install_uc_driver module not found. Please ensure install_uc_driver.py is in the project root.")
+        except Exception as e:
+            logging.error(f"Auto-installation of uc_driver failed: {e}")
+
+
 def main():
     configure_logging()
     start_time = time.time()
@@ -348,6 +364,9 @@ def main():
     args.retry = max(0, args.retry)
     modes = [int(mode.strip()) for mode in args.modes.split(",")]
     print_summary(args, modes)
+
+    if not args.dry_run:
+        ensure_uc_driver()
 
     try:
         account_id = search_player(args.nickname)

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from api import build_paipu_urls, get_player_records, search_player
 from browser import BrowserAutomator, ReviewSubmissionCoordinator
-from results import ResultWriter, parse_metadata
+from results import ResultWriter, parse_metadata, get_processed_uuids
 from seleniumbase import SB
 from config import load_config
 
@@ -161,7 +161,7 @@ def detect_proxy(explicit_proxy: str | None) -> str | None:
     return sys_proxies.get("https") or sys_proxies.get("http")
 
 
-def collect_tasks(account_id: int, modes: list[int], limit: int, output_root: str) -> list[dict]:
+def collect_tasks(account_id: int, modes: list[int], limit: int, output_root: str, processed_uuids: set) -> list[dict]:
     tasks = []
     for mode in modes:
         log_line(f"[Mode {mode}] Fetching records...")
@@ -178,11 +178,16 @@ def collect_tasks(account_id: int, modes: list[int], limit: int, output_root: st
         items = build_paipu_urls(records, account_id)
         mode_dir = os.path.join(output_root, f"mode_{mode}")
         for item in items:
+            if item["uuid"] in processed_uuids:
+                log_line(f"[Skip] uuid={item['uuid']} already processed.")
+                continue
             tasks.append(
                 {
                     "mode": mode,
                     "uuid": item["uuid"],
                     "paipu_url": item["paipuUrl"],
+                    "start_time": item.get("startTime", ""),
+                    "end_time": item.get("endTime", ""),
                     "mode_dir": mode_dir,
                 }
             )
@@ -217,6 +222,8 @@ def consume_result_event(args, writer: ResultWriter, result_event: dict) -> tupl
         "mode": task["mode"],
         "uuid": task["uuid"],
         "paipuUrl": task["paipu_url"],
+        "startTime": task.get("start_time", ""),
+        "endTime": task.get("end_time", ""),
         "timestamp": timestamp,
     }
 
@@ -342,6 +349,7 @@ def main():
         sys.exit(1)
 
     output_root, out_path = build_output_path(args.nickname, args.output)
+    processed_uuids = get_processed_uuids(out_path, args.output)
     proxy = detect_proxy(args.proxy)
 
     if proxy:
@@ -349,7 +357,7 @@ def main():
     else:
         logging.info("[Proxy] No system proxy detected, running directly.")
 
-    tasks = collect_tasks(account_id, modes, args.limit, output_root)
+    tasks = collect_tasks(account_id, modes, args.limit, output_root, processed_uuids)
     total_processed = 0
     total_failed = 0
 

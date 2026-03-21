@@ -2,6 +2,7 @@ import requests
 import urllib.parse
 import logging
 import time
+from datetime import datetime, timezone
 
 BASE_URL = 'https://5-data.amae-koromo.com/api/v2/pl4'
 OFFSET_2 = [1117113, 1358437]
@@ -36,6 +37,7 @@ def search_player(nickname: str) -> int:
         
     logging.info(f"[API] Found player: '{player['nickname']}' (account_id={player['id']})")
     return player["id"]
+
 def get_player_records(account_id: int, limit: int, mode: int) -> list:
     """
     Fetch a player's recent game records for the given mode.
@@ -57,6 +59,13 @@ def get_player_records(account_id: int, limit: int, mode: int) -> list:
     logging.info(f"[API] Fetched {len(data)} records for mode={mode}")
     return data
 
+def format_timestamp(ts: int) -> str:
+    if not ts:
+        return ""
+    if ts > 1e11:
+        ts = ts / 1000.0
+    return datetime.fromtimestamp(ts, timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+
 def build_paipu_urls(records: list, account_id: int) -> list:
     """
     Build a list of paipu URLs from game records.
@@ -67,9 +76,15 @@ def build_paipu_urls(records: list, account_id: int) -> list:
         uuid_str = rec.get("uuid")
         if not uuid_str:
             continue
+            
+        start_time = format_timestamp(rec.get("startTime", 0))
+        end_time = format_timestamp(rec.get("endTime", 0))
+
         results.append({
             "uuid": uuid_str,
             "matchId": match_id,
-            "paipuUrl": f"https://game.maj-soul.com/1/?paipu={uuid_str}_{match_id}"
+            "paipuUrl": f"https://game.maj-soul.com/1/?paipu={uuid_str}_{match_id}",
+            "startTime": start_time,
+            "endTime": end_time
         })
     return results

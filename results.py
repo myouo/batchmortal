@@ -9,6 +9,8 @@ CSV_COLUMNS = [
     "mode",
     "uuid",
     "paipuUrl",
+    "startTime",
+    "endTime",
     "resultUrl",
     "modelTag",
     "rating",
@@ -148,3 +150,37 @@ def append_row(filepath: str, row: dict, output_format: str = "csv"):
     """
     with ResultWriter(filepath, output_format=output_format, flush_every=1) as writer:
         writer.write_row(row)
+
+
+def get_processed_uuids(filepath: str, output_format: str = "xlsx") -> set[str]:
+    """
+    Reads the existing output file and returns a set of all processed UUIDs.
+    """
+    processed = set()
+    if not os.path.exists(filepath):
+        return processed
+
+    try:
+        if output_format == "csv":
+            with open(filepath, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if "uuid" in row and row["uuid"]:
+                        processed.add(row["uuid"])
+        elif output_format == "xlsx":
+            wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
+            ws = wb.active
+            rows = iter(ws.rows)
+            first_row = next(rows, None)
+            if first_row is not None:
+                headers = [cell.value for cell in first_row]
+                if "uuid" in headers:
+                    uuid_idx = headers.index("uuid")
+                    for row in rows:
+                        if len(row) > uuid_idx and row[uuid_idx].value:
+                            processed.add(str(row[uuid_idx].value).strip())
+            wb.close()
+    except Exception as e:
+        print(f"Failed to read processed UUIDs from {filepath}: {e}")
+        
+    return processed

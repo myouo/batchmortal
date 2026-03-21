@@ -62,12 +62,12 @@ python main.py 言乾 --modes 12 --limit 1 --headless --save-screenshot --output
 | `--dry-run` | `False` | 只拉取并打印牌谱 URL，不启动浏览器 |
 | `--save-screenshot` | `False` | 保存分析结果页面截图（举报时可用） |
 | `--output` | `xlsx` | 导出格式，可选 `xlsx` 或 `csv`（默认xlsx） |
+| `--retry` | `3` | 失败条目的重试次数。每次重试都会重新打开分析页并重新提交 |
+| `--prewarm-standby` | `False` | 实验功能。使用两个持久窗口轮流接力，每次只让当前焦点窗口完整处理一条任务，完成后刷新回分析页，再切到另一个窗口继续（推荐尝试） |
 | `--proxy` | 系统代理 | 指定浏览器代理；不传时尝试自动读取系统代理 |
 | `--unsafe-parallel-review` | `False` | 允许并发提交 review。理论上更快，但在单代理环境下通常更慢，也更容易触发 Turnstile 重试（已弃用，不推荐） |
 | `--submit-interval` | `6` | 受控提交模式下，两次提交之间的最小间隔秒数（已弃用，不推荐） |
 | `--submit-cooldown` | `30` | 受控提交模式下，连续失败后的冷却秒数（已弃用，不推荐） |
-| `--retry` | `3` | 失败条目的重试次数。每次重试都会重新打开分析页并重新提交 |
-| `--prewarm-standby` | `False` | 实验功能。使用两个持久窗口轮流接力，每次只让当前焦点窗口完整处理一条任务，完成后刷新回分析页，再切到另一个窗口继续（推荐尝试） |
 | `--no-manual-verification` | `False` | 兼容旧脚本保留参数，当前无实际作用（已弃用） |
 | `--flare-url` | 无 | 兼容旧脚本保留参数，当前无实际作用（已弃用） |
 

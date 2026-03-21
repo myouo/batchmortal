@@ -40,3 +40,6 @@ prewarm_standby: true
 
 # 危险的高并发请求，容易导致Cloudflare卡盾拦截 (弃用，推荐置空或保留为false)
 unsafe_parallel_review: false
+
+# 绘图选项，支持 "none", "html", "png", "both" (默认: "none")
+plot: "none"

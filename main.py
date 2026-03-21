@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from api import build_paipu_urls, get_player_records, search_player
 from browser import BrowserAutomator, ReviewSubmissionCoordinator
 from results import ResultWriter, parse_metadata, get_processed_uuids
+from visualize import plot_results
 from seleniumbase import SB
 from config import load_config
 
@@ -134,6 +135,12 @@ def parse_args():
         "--proxy",
         default=config.get("proxy"),
         help="Proxy URL (e.g. http://127.0.0.1:7890).",
+    )
+    parser.add_argument(
+        "--plot",
+        choices=["none", "html", "png", "both"],
+        default=config.get("plot", "none"),
+        help="Generate a plot after analysis (none, html, png, both).",
     )
     
     args = parser.parse_args()
@@ -406,6 +413,7 @@ def main():
     log_line(f"  Time:      {elapsed:.2f}s")
     if not args.dry_run:
         log_line(f"  Output:    {out_path}")
+        plot_results(args.nickname, args.plot, args.output)
     log_line("============")
 
 

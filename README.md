@@ -58,6 +58,7 @@ python main.py 言乾 --modes 12 --limit 1 --headless --save-screenshot --output
 | `--limit` | `10` | 每个 mode 最多拉取多少条记录 |
 | `--modes` | `9` | 逗号分隔的 mode 列表，例如 `9（四人金南）,12（四人玉南）,16（四人王座南）` |
 | `--model-tag` | `4.1b` | Mortal 分析模型版本（未测试） |
+| `--plot` | `none` | 生成折线图：`none`, `html`, `png`, 或 `both`。默认不生成 |
 | `--headless` | `False` | 后台无界面运行浏览器（推荐） |
 | `--dry-run` | `False` | 只拉取并打印牌谱 URL，不启动浏览器 |
 | `--save-screenshot` | `False` | 保存分析结果页面截图（举报时可用） |

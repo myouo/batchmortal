@@ -38,6 +38,25 @@ def search_player(nickname: str) -> int:
     logging.info(f"[API] Found player: '{player['nickname']}' (account_id={player['id']})")
     return player["id"]
 
+def get_player_nickname_by_id(account_id: int) -> str | None:
+    """
+    Fetch a player's nickname using their account_id.
+    """
+    end_ms = int(time.time() * 1000)
+    start_ms = 1262304000000
+    
+    url = f"{BASE_URL}/player_stats/{account_id}/{start_ms}/{end_ms}?mode=16.12.9.15.11.8"
+    try:
+        res = SESSION.get(url, timeout=15, headers=REQUEST_HEADERS)
+        if res.status_code == 404:
+            return None
+        res.raise_for_status()
+        data = res.json()
+        return data.get("nickname")
+    except Exception as e:
+        logging.warning(f"[API] Failed to fetch nickname for account_id={account_id}: {e}")
+        return None
+
 def get_player_records(account_id: int, limit: int, mode: int) -> list:
     """
     Fetch a player's recent game records for the given mode.

@@ -6,7 +6,7 @@ import time
 import urllib.request
 from datetime import datetime, timezone
 
-from batchmortal.api import build_paipu_urls, get_player_records, search_player
+from batchmortal.api import build_paipu_urls, get_player_records, search_player, get_player_nickname_by_id
 from batchmortal.browser import BrowserAutomator, ReviewSubmissionCoordinator
 from batchmortal.results import ResultWriter, parse_metadata, get_processed_uuids
 from batchmortal.visualize import plot_results
@@ -366,7 +366,6 @@ def main():
     args = parse_args()
     args.retry = max(0, args.retry)
     modes = [int(mode.strip()) for mode in args.modes.split(",")]
-    print_summary(args, modes)
 
     if not args.dry_run:
         ensure_uc_driver()
@@ -374,11 +373,19 @@ def main():
     try:
         if args.account_id:
             account_id = args.account_id
+            if not args.player:
+                # Attempt to fetch nickname to use as the target
+                fetched_name = get_player_nickname_by_id(account_id)
+                if fetched_name:
+                    args.target_name = fetched_name
+                    logging.info(f"[API] Fetched nickname: '{fetched_name}' for account_id={account_id}")
         else:
             account_id = search_player(args.player)
     except Exception as exc:
         logging.error(f"[FATAL] {exc}")
         sys.exit(1)
+
+    print_summary(args, modes)
 
     output_root, out_path = build_output_path(args.target_name, args.output)
     processed_uuids = get_processed_uuids(out_path, args.output)

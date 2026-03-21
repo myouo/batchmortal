@@ -120,6 +120,10 @@ def generate_html(nickname: str, output_path: str, format_type: str = "xlsx") ->
         
     regression_line = calculate_regression(ratings)
     
+    import math
+    min_rating = min(ratings)
+    y_min = 80 if min_rating >= 80 else math.floor(min_rating / 10) * 10
+    
     html_template = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -221,7 +225,7 @@ def generate_html(nickname: str, output_path: str, format_type: str = "xlsx") ->
                 show: false,
                 type: 'continuous',
                 seriesIndex: 0,
-                min: 80,
+                min: {y_min},
                 max: 100,
                 inRange: {{
                     color: ['#ef4444', '#10b981', '#4f46e5', '#fbbf24']
@@ -247,7 +251,7 @@ def generate_html(nickname: str, output_path: str, format_type: str = "xlsx") ->
                 {{
                     type: 'value',
                     name: 'Rating',
-                    min: 80,
+                    min: {y_min},
                     max: 100,
                     axisLabel: {{ formatter: '{{value}}', fontSize: 14, color: '#6b7280' }},
                     nameTextStyle: {{ fontSize: 15, color: '#1f2937', fontWeight: 'bold' }},

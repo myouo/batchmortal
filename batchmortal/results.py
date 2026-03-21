@@ -92,9 +92,20 @@ class ResultWriter:
                 self._workbook = openpyxl.Workbook()
                 self._worksheet = self._workbook.active
                 self._worksheet.append(CSV_COLUMNS)
+                self._uuid_to_row = {}
             else:
                 self._workbook = openpyxl.load_workbook(filepath)
                 self._worksheet = self._workbook.active
+                self._uuid_to_row = {}
+                headers = []
+                for idx, row in enumerate(self._worksheet.iter_rows(values_only=True), start=1):
+                    if idx == 1:
+                        headers = [str(c) if c else "" for c in row]
+                    else:
+                        if "uuid" in headers:
+                            uuid_idx = headers.index("uuid")
+                            if len(row) > uuid_idx and row[uuid_idx]:
+                                self._uuid_to_row[str(row[uuid_idx]).strip()] = idx
         else:
             raise ValueError(f"Unsupported output format: {output_format}")
 
@@ -108,7 +119,16 @@ class ResultWriter:
                 self.flush()
             return
 
-        self._worksheet.append(safe_row)
+        uuid_val = str(row.get("uuid", "")).strip()
+        if uuid_val and hasattr(self, "_uuid_to_row") and uuid_val in self._uuid_to_row:
+            row_idx = self._uuid_to_row[uuid_val]
+            for col_idx, val in enumerate(safe_row, start=1):
+                self._worksheet.cell(row=row_idx, column=col_idx, value=val)
+        else:
+            self._worksheet.append(safe_row)
+            if uuid_val and hasattr(self, "_uuid_to_row"):
+                self._uuid_to_row[uuid_val] = self._worksheet.max_row
+
         self._pending_rows += 1
         if self._pending_rows >= self.flush_every:
             self.flush()
@@ -166,7 +186,8 @@ def get_processed_uuids(filepath: str, output_format: str = "xlsx") -> set[str]:
                 reader = csv.DictReader(f)
                 for row in reader:
                     if "uuid" in row and row["uuid"]:
-                        processed.add(row["uuid"])
+                        if row.get("rating", "") != "ERROR":
+                            processed.add(row["uuid"])
         elif output_format == "xlsx":
             wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
             ws = wb.active
@@ -176,9 +197,12 @@ def get_processed_uuids(filepath: str, output_format: str = "xlsx") -> set[str]:
                 headers = [cell.value for cell in first_row]
                 if "uuid" in headers:
                     uuid_idx = headers.index("uuid")
+                    rating_idx = headers.index("rating") if "rating" in headers else -1
                     for row in rows:
                         if len(row) > uuid_idx and row[uuid_idx].value:
-                            processed.add(str(row[uuid_idx].value).strip())
+                            rating_val = str(row[rating_idx].value).strip() if rating_idx >= 0 and len(row) > rating_idx and row[rating_idx].value is not None else ""
+                            if rating_val != "ERROR":
+                                processed.add(str(row[uuid_idx].value).strip())
             wb.close()
     except Exception as e:
         print(f"Failed to read processed UUIDs from {filepath}: {e}")

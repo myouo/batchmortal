@@ -78,10 +78,14 @@ def calculate_regression(y_vals: list[float]) -> list[float]:
         return [sum(y_vals) / n] * n
 
 
-def generate_html(nickname: str, output_path: str, format_type: str = "xlsx") -> str | None:
+def generate_html(nickname: str, output_path: str, format_type: str = "xlsx", plot_limit: int | None = None) -> str | None:
     records = read_results(nickname, format_type)
     if not records:
         return None
+
+    # 若设置了 plot_limit, 只取最新的 N 条数据
+    if plot_limit is not None and plot_limit > 0 and len(records) > plot_limit:
+        records = records[-plot_limit:]
         
     full_times = []
     times = []
@@ -117,6 +121,20 @@ def generate_html(nickname: str, output_path: str, format_type: str = "xlsx") ->
     if not ratings:
         logging.warning("No valid rating data found to plot.")
         return None
+
+    # 半庄数序号
+    total_games = len(ratings)
+    hanchan_labels = [f'#{i+1}' for i in range(total_games)]
+
+    # 动态计算半庄数标注间隔
+    if total_games <= 20:
+        hanchan_interval = 0  # 每条都显示
+    elif total_games <= 50:
+        hanchan_interval = 4  # 每5条显示
+    elif total_games <= 100:
+        hanchan_interval = 9  # 每10条显示
+    else:
+        hanchan_interval = 19  # 每20条显示
         
     regression_line = calculate_regression(ratings)
     
@@ -157,6 +175,7 @@ def generate_html(nickname: str, output_path: str, format_type: str = "xlsx") ->
         const ratingData = {json.dumps(ratings)};
         const aiData = {json.dumps(ai_rates)};
         const regressionData = {json.dumps(regression_line)};
+        const hanchanData = {json.dumps(hanchan_labels)};
         
         var option = {{
             textStyle: {{
@@ -164,13 +183,24 @@ def generate_html(nickname: str, output_path: str, format_type: str = "xlsx") ->
             }},
             animation: false,
             title: {{
-                text: '{nickname} 的Mortal解析统计',
+                text: '{{nick|{nickname}}} 的Mortal解析统计',
                 left: 'center',
                 top: 10,
                 textStyle: {{
                     fontSize: 26,
                     fontWeight: 'bold',
-                    color: '#1f2937'
+                    color: '#1f2937',
+                    rich: {{
+                        nick: {{
+                            fontSize: 28,
+                            fontWeight: 'bold',
+                            fontStyle: 'italic',
+                            color: '#6366f1',
+                            padding: [0, 2, 0, 2],
+                            textShadowColor: 'rgba(99, 102, 241, 0.3)',
+                            textShadowBlur: 6
+                        }}
+                    }}
                 }}
             }},
             tooltip: {{
@@ -201,7 +231,7 @@ def generate_html(nickname: str, output_path: str, format_type: str = "xlsx") ->
             grid: {{
                 left: '5%',
                 right: '5%',
-                bottom: '15%',
+                bottom: '20%',
                 top: '20%',
                 containLabel: true
             }},
@@ -245,6 +275,34 @@ def generate_html(nickname: str, output_path: str, format_type: str = "xlsx") ->
                     }},
                     axisTick: {{ show: false }},
                     splitLine: {{ show: false }}
+                }},
+                {{
+                    type: 'category',
+                    data: hanchanData,
+                    position: 'bottom',
+                    offset: 50,
+                    axisLine: {{ show: false }},
+                    axisTick: {{ show: false }},
+                    axisLabel: {{
+                        fontSize: 12,
+                        color: '#9ca3af',
+                        fontStyle: 'italic',
+                        interval: function(index) {{
+                            var step = {hanchan_interval} + 1;
+                            var last = hanchanData.length - 1;
+                            return index === last || index % step === 0;
+                        }}
+                    }},
+                    splitLine: {{ show: false }},
+                    name: '半庄数',
+                    nameLocation: 'start',
+                    nameGap: -10,
+                    nameTextStyle: {{
+                        fontSize: 13,
+                        color: '#6b7280',
+                        fontWeight: 'bold',
+                        padding: [0, 10, 0, 0]
+                    }}
                 }}
             ],
             yAxis: [
@@ -341,7 +399,7 @@ def save_png(html_path: str, png_path: str):
         sb.sleep(1.0)
         sb.save_screenshot(png_path, selector="#main")
 
-def plot_results(nickname: str, plot_mode: str, output_format: str = "xlsx"):
+def plot_results(nickname: str, plot_mode: str, output_format: str = "xlsx", plot_limit: int | None = None):
     if plot_mode in ["none", None]:
         return
         
@@ -356,8 +414,8 @@ def plot_results(nickname: str, plot_mode: str, output_format: str = "xlsx"):
     html_path = os.path.join(output_root, f"report_{safe_nick}.html")
     png_path = os.path.join(output_root, f"report_{safe_nick}.png")
     
-    logging.info(f"Generating charts for {nickname} (Mode: {plot_mode})...")
-    res = generate_html(nickname, html_path, output_format)
+    logging.info(f"Generating charts for {nickname} (Mode: {plot_mode}, Limit: {plot_limit or 'all'})...")
+    res = generate_html(nickname, html_path, output_format, plot_limit=plot_limit)
     if not res:
         logging.warning("Skipping chart generation.")
         return
@@ -378,7 +436,11 @@ def plot_results(nickname: str, plot_mode: str, output_format: str = "xlsx"):
             pass
 
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1:
-        fmt = "xlsx"
-        plot_results(sys.argv[1], "both", fmt)
+    import argparse
+    parser = argparse.ArgumentParser(description="Generate Mortal Analysis Chart")
+    parser.add_argument("nickname", help="Player nickname")
+    parser.add_argument("--plot-limit", "--plot_limit", type=int, default=None, help="Only use the latest N records for chart (default: all)", dest="plot_limit")
+    args = parser.parse_args()
+    
+    fmt = "xlsx"
+    plot_results(args.nickname, "both", fmt, plot_limit=args.plot_limit)

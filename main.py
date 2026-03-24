@@ -43,7 +43,7 @@ def parse_args():
     parser.add_argument("--config", help="Path to config file (yaml or toml)")
     dry_run_default = config.get("dry_run", False)
     parser.add_argument(
-        "--dry-run",
+        "--dry-run", "--dry_run",
         action="store_true" if not dry_run_default else "store_false",
         default=dry_run_default,
         help="Only print URLs, skip browser",
@@ -56,7 +56,7 @@ def parse_args():
         "-p", "-u", "--player", dest="player", default=config.get("player") or config.get("nickname"), help="Player nickname"
     )
     target_group.add_argument(
-        "-a", "--account-id", dest="account_id", type=int, default=config.get("account_id"), help="Directly specify player account ID"
+        "-a", "--account-id", "--account_id", dest="account_id", type=int, default=config.get("account_id"), help="Directly specify player account ID"
     )
 
     # -- Analysis Options --
@@ -68,7 +68,7 @@ def parse_args():
         "--modes", default=str(config.get("modes", "9")), help="Comma-separated mode IDs"
     )
     analysis_group.add_argument(
-        "--model-tag", default=config.get("model_tag", "4.1b"), help="Mortal network version"
+        "--model-tag", "--model_tag", default=config.get("model_tag", "4.1b"), help="Mortal network version", dest="model_tag"
     )
     analysis_group.add_argument(
         "--retry", type=int, default=config.get("retry", 3), help="Retry failed review items this many times"
@@ -96,9 +96,12 @@ def parse_args():
     output_group.add_argument(
         "--plot", choices=["none", "html", "png", "both"], default=config.get("plot", "none"), help="Generate a plot after analysis"
     )
+    output_group.add_argument(
+        "--plot-limit", "--plot_limit", type=int, default=config.get("plot_limit"), help="Only use the latest N records for chart (default: all)", dest="plot_limit"
+    )
     save_screenshot_default = config.get("save_screenshot", False)
     output_group.add_argument(
-        "--save-screenshot",
+        "--save-screenshot", "--save_screenshot",
         action="store_true" if not save_screenshot_default else "store_false",
         default=save_screenshot_default,
         help="Save screenshot of the results",
@@ -109,21 +112,21 @@ def parse_args():
     submit_group = parser.add_argument_group("Advanced Submission Options")
     unsafe_parallel_default = config.get("unsafe_parallel_review", False)
     submit_group.add_argument(
-        "--unsafe-parallel-review",
+        "--unsafe-parallel-review", "--unsafe_parallel_review",
         action="store_true" if not unsafe_parallel_default else "store_false",
         default=unsafe_parallel_default,
         help="Allow concurrent review submissions",
         dest="unsafe_parallel_review"
     )
     submit_group.add_argument(
-        "--submit-interval", type=float, default=config.get("submit_interval", 6.0), help="Minimum spacing between controlled submissions in seconds"
+        "--submit-interval", "--submit_interval", type=float, default=config.get("submit_interval", 6.0), help="Minimum spacing between controlled submissions in seconds", dest="submit_interval"
     )
     submit_group.add_argument(
-        "--submit-cooldown", type=float, default=config.get("submit_cooldown", 30.0), help="Cooldown seconds after repeated review failures"
+        "--submit-cooldown", "--submit_cooldown", type=float, default=config.get("submit_cooldown", 30.0), help="Cooldown seconds after repeated review failures", dest="submit_cooldown"
     )
     prewarm_standby_default = config.get("prewarm_standby", False)
     submit_group.add_argument(
-        "--prewarm-standby",
+        "--prewarm-standby", "--prewarm_standby",
         action="store_true" if not prewarm_standby_default else "store_false",
         default=prewarm_standby_default,
         help="Experimental: use two persistent windows and alternate focus",
@@ -134,13 +137,14 @@ def parse_args():
     legacy_group = parser.add_argument_group("Legacy Options")
     no_manual_verification_default = config.get("no_manual_verification", False)
     legacy_group.add_argument(
-        "--no-manual-verification",
+        "--no-manual-verification", "--no_manual_verification",
         action="store_true" if not no_manual_verification_default else "store_false",
         default=no_manual_verification_default,
         help="Legacy flag kept for compatibility",
+        dest="no_manual_verification"
     )
     legacy_group.add_argument(
-        "--flare-url", default=config.get("flare_url"), help="Legacy flag kept for compatibility"
+        "--flare-url", "--flare_url", default=config.get("flare_url"), help="Legacy flag kept for compatibility", dest="flare_url"
     )
     
     args = parser.parse_args()
@@ -445,7 +449,7 @@ def main():
     log_line(f"  Time:      {elapsed:.2f}s")
     if not args.dry_run:
         log_line(f"  Output:    {out_path}")
-        plot_results(args.target_name, args.plot, args.output)
+        plot_results(args.target_name, args.plot, args.output, plot_limit=args.plot_limit)
     log_line("============")
 
 

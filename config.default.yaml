@@ -43,3 +43,7 @@ unsafe_parallel_review: false
 
 # 绘图选项，支持 "none", "html", "png", "both" (默认: "none")
 plot: "none"
+
+# 画图时取最近多少条数据 (默认: 全部)
+# 设置后仅取最新的 N 条数据用于绘图
+# plot_limit: 50

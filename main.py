@@ -379,55 +379,52 @@ def collect_tenhou_tasks(
 def collect_file_tasks(filename: str, source: str, output_root: str, processed_uuids: set) -> list[dict]:
     tasks = []
     majsoul_uuid_p = re.compile(r"https://game\.maj-soul\.com/1/\?paipu=(\d{6}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})_a\d+")
-    fake_time = time.time()
 
-    f = open(filename, encoding="utf-8")
-    for i, line in enumerate(f):
-        line = line.strip()
-        if source == "tenhou":
-            result = parse_tenhou_log_url(line)
-            if result is None:
-                logging.error(f"[ERROR] line={line} is not a valid tenhou paifu link, skip.")
-                continue
-            log_id = result[0]
-            if log_id in processed_uuids:
-                log_line(f"[Skip] uuid={log_id} already processed.")
-                continue
+    with open(filename, encoding="utf-8") as f:
+        for i, line in enumerate(f):
+            line = line.strip()
+            if source == "tenhou":
+                result = parse_tenhou_log_url(line)
+                if result is None:
+                    logging.error(f"[ERROR] line={line} is not a valid tenhou paifu link, skip.")
+                    continue
+                log_id = result[0]
+                if log_id in processed_uuids:
+                    log_line(f"[Skip] uuid={log_id} already processed.")
+                    continue
 
-            tasks.append(
-                {
-                    "source": "tenhou",
-                    "mode": "file",
-                    "uuid": log_id,
-                    "paipu_url": line,
-                    "start_time": f"N/A (#{i+1})",
-                    "end_time": f"N/A (#{i+1})",
-                    "mode_dir": os.path.join(output_root, "mode_file"),
-                }
-            )
-            fake_time += 1
-        else:
-            m = majsoul_uuid_p.search(line)
-            if not m:
-                logging.error(f"[ERROR] line={line} is not a valid majsoul paipu link, skip.")
-                continue
-            uuid = m.group(1)
-            if uuid in processed_uuids:
-                log_line(f"[Skip] uuid={uuid} already processed.")
-                continue
+                tasks.append(
+                    {
+                        "source": "tenhou",
+                        "mode": "file",
+                        "uuid": log_id,
+                        "paipu_url": line,
+                        "start_time": f"N/A (#{i+1})",
+                        "end_time": f"N/A (#{i+1})",
+                        "mode_dir": os.path.join(output_root, "mode_file"),
+                    }
+                )
+            else:
+                m = majsoul_uuid_p.search(line)
+                if not m:
+                    logging.error(f"[ERROR] line={line} is not a valid majsoul paipu link, skip.")
+                    continue
+                uuid = m.group(1)
+                if uuid in processed_uuids:
+                    log_line(f"[Skip] uuid={uuid} already processed.")
+                    continue
 
-            tasks.append(
-                {
-                    "source": "majsoul",
-                    "mode": "file",
-                    "uuid": uuid,
-                    "paipu_url": m.group(0),
-                    "start_time": f"N/A (#{i+1})",
-                    "end_time": f"N/A (#{i+1})",
-                    "mode_dir": os.path.join(output_root, "mode_file"),
-                }
-            )
-            fake_time += 1
+                tasks.append(
+                    {
+                        "source": "majsoul",
+                        "mode": "file",
+                        "uuid": uuid,
+                        "paipu_url": m.group(0),
+                        "start_time": f"N/A (#{i+1})",
+                        "end_time": f"N/A (#{i+1})",
+                        "mode_dir": os.path.join(output_root, "mode_file"),
+                    }
+                )
 
     return finalize_tasks(tasks)
 

@@ -1,12 +1,18 @@
 import argparse
 import logging
 import os
+import re
 import sys
 import time
 import urllib.request
 from datetime import datetime, timezone
 
-from batchmortal.api import build_paipu_urls, get_player_records, search_player, get_player_nickname_by_id
+from batchmortal.api import (
+    build_paipu_urls,
+    get_player_records,
+    search_player,
+    get_player_nickname_by_id,
+)
 from batchmortal.browser import (
     BrowserAutomator,
     ReviewSubmissionCoordinator,
@@ -18,6 +24,7 @@ from batchmortal.tenhou import (
     build_tenhou_paipu_urls,
     fetch_tenhou_player_records,
     normalize_tenhou_modes,
+    parse_tenhou_log_url,
 )
 from batchmortal.visualize import plot_results
 from seleniumbase import SB
@@ -93,6 +100,10 @@ def parse_args():
         default=None,
         help="Legacy source selector; use --mode for new configurations",
         dest="legacy_source",
+    )
+    source_group.add_argument(
+        "--file",
+        help="Load links directly from the specified file, one link per line"
     )
     dry_run_default = config.get("dry_run", False)
     parser.add_argument(
@@ -362,6 +373,62 @@ def collect_tenhou_tasks(
                 "mode_dir": os.path.join(output_root, f"mode_{mode}"),
             }
         )
+    return finalize_tasks(tasks)
+
+
+def collect_file_tasks(filename: str, source: str, output_root: str, processed_uuids: set) -> list[dict]:
+    tasks = []
+    majsoul_uuid_p = re.compile(r"https://game\.maj-soul\.com/1/\?paipu=(\d{6}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})_a\d+")
+    fake_time = time.time()
+
+    f = open(filename, encoding="utf-8")
+    for i, line in enumerate(f):
+        line = line.strip()
+        if source == "tenhou":
+            result = parse_tenhou_log_url(line)
+            if result is None:
+                logging.error(f"[ERROR] line={line} is not a valid tenhou paifu link, skip.")
+                continue
+            log_id = result[0]
+            if log_id in processed_uuids:
+                log_line(f"[Skip] uuid={log_id} already processed.")
+                continue
+
+            tasks.append(
+                {
+                    "source": "tenhou",
+                    "mode": "file",
+                    "uuid": log_id,
+                    "paipu_url": line,
+                    "start_time": f"N/A (#{i+1})",
+                    "end_time": f"N/A (#{i+1})",
+                    "mode_dir": os.path.join(output_root, "mode_file"),
+                }
+            )
+            fake_time += 1
+        else:
+            m = majsoul_uuid_p.search(line)
+            if not m:
+                logging.error(f"[ERROR] line={line} is not a valid majsoul paipu link, skip.")
+                continue
+            uuid = m.group(1)
+            if uuid in processed_uuids:
+                log_line(f"[Skip] uuid={uuid} already processed.")
+                continue
+
+            tasks.append(
+                {
+                    "source": "majsoul",
+                    "mode": "file",
+                    "uuid": uuid,
+                    "paipu_url": m.group(0),
+                    "start_time": f"N/A (#{i+1})",
+                    "end_time": f"N/A (#{i+1})",
+                    "mode_dir": os.path.join(output_root, "mode_file"),
+                }
+            )
+            fake_time += 1
+
     return finalize_tasks(tasks)
 
 
@@ -661,7 +728,10 @@ def main():
     account_id = None
     tenhou_records = None
     try:
-        if args.source == "tenhou":
+        if args.file:
+            args.target_name = args.player or str(args.account_id)
+            args.limit = 0
+        elif args.source == "tenhou":
             args.target_name, tenhou_records = fetch_tenhou_player_records(args.player)
         elif args.account_id:
             account_id = args.account_id
@@ -688,7 +758,9 @@ def main():
     else:
         logging.info("[Proxy] No system proxy detected, running directly.")
 
-    if args.source == "tenhou":
+    if args.file:
+        tasks = collect_file_tasks(args.file, args.source, output_root, processed_uuids)
+    elif args.source == "tenhou":
         tasks = collect_tenhou_tasks(
             tenhou_records,
             args.target_name,

@@ -91,25 +91,29 @@ python main.py --config config.example.yaml --mode th -p ププリン --modes 4p
 
 # 使用配置文件，但临时分析指定雀魂玩家
 python main.py --config config.example.yaml --mode mj -p 言乾 --modes 12 --limit 10
+
+# 使用配置文件，直接从指定文件中批量读取牌谱链接
+python main.py --config config.example.yaml --file paipu.txt
 ```
 
 主要参数：
 
-| 参数 | 说明 |
-| :--- | :--- |
-| `--config` | 指定 YAML/TOML 配置文件 |
-| `--mode` | 唯一数据源：`mj`/`0` 或 `th`/`1` |
-| `-p`, `--player` | 当前数据源的玩家昵称 |
-| `-a`, `--account-id` | 雀魂数字账号 ID；天凤不支持 |
-| `--modes` | 逗号分隔的对局模式 |
-| `--limit` | 每个实际模式最多获取的记录数 |
-| `--review-ui` | 结果页样式：`classic` 或 `killerducky` |
-| `--dry-run` | 只打印牌谱 URL |
-| `--headless` | 切换无头浏览器设置 |
-| `--badmove` | 开启恶手率统计 |
-| `--save-local` | 保存 Mortal 结果页 HTML |
-| `--save-screenshot` | 保存结果截图 |
-| `--plot` | 生成 HTML/PNG 图表 |
+| 参数                   | 说明                                                 |
+|:---------------------|:---------------------------------------------------|
+| `--config`           | 指定 YAML/TOML 配置文件                                  |
+| `--mode`             | 唯一数据源：`mj`/`0` 或 `th`/`1`                          |
+| `--file`             | 文件数据源：从指定的文件名中读取牌谱链接，每行一个链接。在此模式下，对局模式，对局时间等信息不可用。 |
+| `-p`, `--player`     | 当前数据源的玩家昵称                                         |
+| `-a`, `--account-id` | 雀魂数字账号 ID；天凤不支持                                    |
+| `--modes`            | 逗号分隔的对局模式                                          |
+| `--limit`            | 每个实际模式最多获取的记录数                                     |
+| `--review-ui`        | 结果页样式：`classic` 或 `killerducky`                    |
+| `--dry-run`          | 只打印牌谱 URL                                          |
+| `--headless`         | 切换无头浏览器设置                                          |
+| `--badmove`          | 开启恶手率统计                                            |
+| `--save-local`       | 保存 Mortal 结果页 HTML                                 |
+| `--save-screenshot`  | 保存结果截图                                             |
+| `--plot`             | 生成 HTML/PNG 图表                                     |
 
 KillerDucky 页面将 Rating 和 AI 一致率显示在 About 中。项目实际从该页面引用的
 `/report/*.json` 结构化数据读取这些字段；开启 `analyze_bad_move_rate` 后，也会根据每个

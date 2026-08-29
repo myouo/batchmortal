@@ -2,7 +2,7 @@ import logging
 import re
 import urllib.parse
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import requests
 
@@ -47,9 +47,12 @@ TENHOU_MODE_CHOICES = (
     "3p-south",
 )
 TENHOU_LOG_ID_RE = re.compile(
-    r"^\d{10}gm-[0-9a-z]{4}-[0-9a-z]+-[0-9a-z]{8}$",
+    r"^(?P<hour>\d{10})gm-(?P<game_type>[0-9a-f]{4})-[0-9a-z]+-[0-9a-z]{8}$",
     re.IGNORECASE,
 )
+TENHOU_GAME_TYPE_HANCHAN = 0x08
+TENHOU_GAME_TYPE_SANMA = 0x10
+TENHOU_LOG_TIMEZONE = timezone(timedelta(hours=9))
 
 
 def fetch_tenhou_player_records(player_name: str) -> tuple[str, list[dict]]:
@@ -188,10 +191,14 @@ def parse_tenhou_log_url(url: str) -> tuple[str, str] | None:
     if not isinstance(url, str) or not url:
         return None
 
-    parsed = urllib.parse.urlsplit(url)
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        host = (parsed.hostname or "").lower()
+    except ValueError:
+        return None
     if parsed.scheme not in ("http", "https"):
         return None
-    if (parsed.hostname or "").lower() not in ("tenhou.net", "www.tenhou.net"):
+    if host not in ("tenhou.net", "www.tenhou.net"):
         return None
     if parsed.path not in ("/0", "/0/"):
         return None
@@ -201,17 +208,40 @@ def parse_tenhou_log_url(url: str) -> tuple[str, str] | None:
         return None
 
     log_id = log_values[0]
-    canonical_host = (parsed.hostname or "tenhou.net").lower()
     canonical_url = urllib.parse.urlunsplit(
         (
             parsed.scheme,
-            canonical_host,
+            host,
             "/0/",
             urllib.parse.urlencode({"log": log_id}),
             "",
         )
     )
     return log_id, canonical_url
+
+
+def parse_tenhou_log_id(log_id: str) -> dict | None:
+    """Decode the timestamp precision and game mode carried by a Tenhou log ID."""
+    match = TENHOU_LOG_ID_RE.fullmatch(str(log_id))
+    if not match:
+        return None
+
+    try:
+        started_at = (
+            datetime.strptime(match.group("hour"), "%Y%m%d%H")
+            .replace(tzinfo=TENHOU_LOG_TIMEZONE)
+            .astimezone()
+        )
+        game_type = int(match.group("game_type"), 16)
+    except ValueError:
+        return None
+
+    player_count = 3 if game_type & TENHOU_GAME_TYPE_SANMA else 4
+    game_length = "south" if game_type & TENHOU_GAME_TYPE_HANCHAN else "east"
+    return {
+        "start_time": started_at.strftime("%Y-%m-%d %H:00:00"),
+        "mode": f"{player_count}p-{game_length}",
+    }
 
 
 def format_tenhou_timestamp(timestamp) -> str:

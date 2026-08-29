@@ -34,6 +34,13 @@ def _parse_time(value) -> float:
             return 0.0
 
 
+def _record_sort_time(record: dict) -> float:
+    start_time = _parse_time(record.get("startTime"))
+    if start_time:
+        return start_time
+    return _parse_time(record.get("timestamp"))
+
+
 def read_results(
     nickname: str,
     output_format: str = "xlsx",
@@ -74,7 +81,7 @@ def read_results(
     else:
         raise ValueError(f"Unsupported output format: {output_format}")
 
-    records.sort(key=lambda row: _parse_time(row.get("startTime") or row.get("timestamp")))
+    records.sort(key=_record_sort_time)
     return records
 
 

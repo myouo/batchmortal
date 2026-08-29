@@ -1,7 +1,6 @@
 import argparse
 import logging
 import os
-import re
 import sys
 import time
 import urllib.request
@@ -9,9 +8,11 @@ from datetime import datetime, timezone
 
 from batchmortal.api import (
     build_paipu_urls,
+    format_majsoul_uuid_date,
     get_player_records,
-    search_player,
     get_player_nickname_by_id,
+    parse_majsoul_paipu_url,
+    search_player,
 )
 from batchmortal.browser import (
     BrowserAutomator,
@@ -24,6 +25,7 @@ from batchmortal.tenhou import (
     build_tenhou_paipu_urls,
     fetch_tenhou_player_records,
     normalize_tenhou_modes,
+    parse_tenhou_log_id,
     parse_tenhou_log_url,
 )
 from batchmortal.visualize import plot_results
@@ -101,7 +103,7 @@ def parse_args():
         help="Legacy source selector; use --mode for new configurations",
         dest="legacy_source",
     )
-    source_group.add_argument(
+    parser.add_argument(
         "--file",
         help="Load links directly from the specified file, one link per line"
     )
@@ -376,55 +378,92 @@ def collect_tenhou_tasks(
     return finalize_tasks(tasks)
 
 
-def collect_file_tasks(filename: str, source: str, output_root: str, processed_uuids: set) -> list[dict]:
+def collect_file_tasks(
+    filename: str,
+    source: str,
+    output_root: str,
+    processed_uuids: set,
+) -> list[dict]:
+    if source not in ("majsoul", "tenhou"):
+        raise ValueError(f"Unsupported file source: {source}")
+
     tasks = []
-    majsoul_uuid_p = re.compile(r"https://game\.maj-soul\.com/1/\?paipu=(\d{6}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})_a\d+")
+    seen_uuids = set(processed_uuids)
 
-    with open(filename, encoding="utf-8") as f:
-        for i, line in enumerate(f):
-            line = line.strip()
-            if source == "tenhou":
-                result = parse_tenhou_log_url(line)
-                if result is None:
-                    logging.error(f"[ERROR] line={line} is not a valid tenhou paifu link, skip.")
-                    continue
-                log_id = result[0]
-                if log_id in processed_uuids:
-                    log_line(f"[Skip] uuid={log_id} already processed.")
+    try:
+        with open(filename, encoding="utf-8") as f:
+            for line_number, raw_line in enumerate(f, start=1):
+                line = raw_line.strip()
+                if not line:
                     continue
 
-                tasks.append(
-                    {
-                        "source": "tenhou",
-                        "mode": "file",
-                        "uuid": log_id,
-                        "paipu_url": line,
-                        "start_time": f"N/A (#{i+1})",
-                        "end_time": f"N/A (#{i+1})",
-                        "mode_dir": os.path.join(output_root, "mode_file"),
-                    }
-                )
-            else:
-                m = majsoul_uuid_p.search(line)
-                if not m:
-                    logging.error(f"[ERROR] line={line} is not a valid majsoul paipu link, skip.")
-                    continue
-                uuid = m.group(1)
-                if uuid in processed_uuids:
-                    log_line(f"[Skip] uuid={uuid} already processed.")
+                tenhou_result = parse_tenhou_log_url(line)
+                majsoul_result = parse_majsoul_paipu_url(line)
+
+                if source == "tenhou":
+                    if tenhou_result is None:
+                        if majsoul_result is not None:
+                            raise ValueError(
+                                f"Line {line_number} is a Mahjong Soul link, but the selected "
+                                "source is Tenhou. Use --mode mj or update the config."
+                            )
+                        logging.error(
+                            f"[ERROR] line={line_number} is not a valid Tenhou paipu link, skip."
+                        )
+                        continue
+
+                    log_id = tenhou_result[0]
+                    if log_id in seen_uuids:
+                        log_line(f"[Skip] uuid={log_id} already processed or duplicated.")
+                        continue
+
+                    metadata = parse_tenhou_log_id(log_id)
+                    mode = metadata["mode"] if metadata else "file"
+                    start_time = metadata["start_time"] if metadata else ""
+                    seen_uuids.add(log_id)
+                    tasks.append(
+                        {
+                            "source": "tenhou",
+                            "mode": mode,
+                            "uuid": log_id,
+                            "paipu_url": line,
+                            "start_time": start_time,
+                            "end_time": "",
+                            "mode_dir": os.path.join(output_root, f"mode_{mode}"),
+                        }
+                    )
                     continue
 
+                if majsoul_result is None:
+                    if tenhou_result is not None:
+                        raise ValueError(
+                            f"Line {line_number} is a Tenhou link, but the selected source is "
+                            "Mahjong Soul. Use --mode th or update the config."
+                        )
+                    logging.error(
+                        f"[ERROR] line={line_number} is not a valid Mahjong Soul paipu link, skip."
+                    )
+                    continue
+
+                uuid, paipu_url = majsoul_result
+                if uuid in seen_uuids:
+                    log_line(f"[Skip] uuid={uuid} already processed or duplicated.")
+                    continue
+
+                seen_uuids.add(uuid)
                 tasks.append(
                     {
                         "source": "majsoul",
                         "mode": "file",
                         "uuid": uuid,
-                        "paipu_url": m.group(0),
-                        "start_time": f"N/A (#{i+1})",
-                        "end_time": f"N/A (#{i+1})",
+                        "paipu_url": paipu_url,
+                        "start_time": format_majsoul_uuid_date(uuid),
+                        "end_time": "",
                         "mode_dir": os.path.join(output_root, "mode_file"),
                     }
                 )
+    except (OSError, UnicodeError) as exc:
+        raise ValueError(f"Could not read paipu link file '{filename}': {exc}") from exc
 
     return finalize_tasks(tasks)
 
@@ -709,7 +748,9 @@ def main():
     args = parse_args()
     args.retry = max(0, args.retry)
     try:
-        if args.source == "tenhou":
+        if args.file:
+            modes = ["from-file"]
+        elif args.source == "tenhou":
             modes = normalize_tenhou_modes(args.modes)
         else:
             modes = [int(mode.strip()) for mode in args.modes.split(",") if mode.strip()]
@@ -756,7 +797,11 @@ def main():
         logging.info("[Proxy] No system proxy detected, running directly.")
 
     if args.file:
-        tasks = collect_file_tasks(args.file, args.source, output_root, processed_uuids)
+        try:
+            tasks = collect_file_tasks(args.file, args.source, output_root, processed_uuids)
+        except ValueError as exc:
+            logging.error(f"[FATAL] {exc}")
+            sys.exit(1)
     elif args.source == "tenhou":
         tasks = collect_tenhou_tasks(
             tenhou_records,

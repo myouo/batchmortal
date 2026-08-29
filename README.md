@@ -92,8 +92,11 @@ python main.py --config config.example.yaml --mode th -p ププリン --modes 4p
 # 使用配置文件，但临时分析指定雀魂玩家
 python main.py --config config.example.yaml --mode mj -p 言乾 --modes 12 --limit 10
 
-# 使用配置文件，直接从指定文件中批量读取牌谱链接
-python main.py --config config.example.yaml --file paipu.txt
+# 使用配置文件，直接从指定文件中批量读取天凤牌谱链接
+python main.py --config config.example.yaml --mode th -p ププリン --file paipu.txt
+
+# 不使用配置文件，批量读取雀魂牌谱链接
+python main.py --mode mj -p 言乾 --file paipu.txt
 ```
 
 主要参数：
@@ -102,7 +105,7 @@ python main.py --config config.example.yaml --file paipu.txt
 |:---------------------|:---------------------------------------------------|
 | `--config`           | 指定 YAML/TOML 配置文件                                  |
 | `--mode`             | 唯一数据源：`mj`/`0` 或 `th`/`1`                          |
-| `--file`             | 文件数据源：从指定的文件名中读取牌谱链接，每行一个链接。在此模式下，对局模式，对局时间等信息不可用。 |
+| `--file`             | 文件输入：从指定文件读取牌谱链接，每行一个；可以和 `--mode` 一起使用                 |
 | `-p`, `--player`     | 当前数据源的玩家昵称                                         |
 | `-a`, `--account-id` | 雀魂数字账号 ID；天凤不支持                                    |
 | `--modes`            | 逗号分隔的对局模式                                          |
@@ -120,6 +123,19 @@ KillerDucky 页面将 Rating 和 AI 一致率显示在 About 中。项目实际�
 决策的 `actual_index` 与实际选择概率计算 5%/10% 恶手率。两种 UI 的恶手率口径一致。
 
 旧参数 `--source majsoul|tenhou` 仍可兼容使用，但不能和 `--mode` 同时出现；新配置统一推荐 `mode: mj|th`。
+
+### 本地牌谱文件
+
+`--file` 只替换“获取牌谱列表”的方式，牌谱来源仍由 `--mode`（或配置文件顶层的
+`mode`）决定。程序会逐行校验链接来源；例如用 `--mode th` 读取到雀魂链接时会终止并提示
+改用 `--mode mj`，避免结果写入错误的数据源目录。同一文件内重复的牌谱以及结果文件中已经
+成功处理的牌谱都会跳过。
+
+- 天凤牌谱 ID 自带日本时区的小时和规则位，因此文件模式会将小时转换到运行机器的本地时区，
+  恢复近似开始时间以及四/三麻、东/南场模式，并按实际模式保存到 `mode_<mode>` 目录。
+- 雀魂牌谱 UUID 只能可靠恢复日期，无法从共享链接本身恢复精确开始/结束时间或房间模式，
+  因此文件模式保存到 `mode_file`；精确元信息需要另行读取官方牌谱记录。
+- 支持雀魂国服 `game.maj-soul.com` 和国际服 `mahjongsoul.game.yo-star.com` 的共享链接。
 
 ## 浏览器提交模式
 
@@ -158,6 +174,7 @@ results/
 - Nodocchi 返回的 `tw` 是压缩座位排列；脚本会解码目标玩家视角，并且只接受 `tenhou.net` 正式牌谱 URL。
 - Nodocchi 中没有 `url` 或 `tw` 的历史统计记录不会进入 Mortal 分析队列。
 - 已成功写入结果文件的牌谱会跳过；失败记录仍可在后续运行中重试。
+- 本地文件中的空行会忽略；无法识别的链接会记录错误并跳过。
 - `--badmove`、本地 HTML 和截图只会应用于新执行的分析，不会自动重跑已经成功的牌谱。
 - 总耗时通常取决于浏览器提交、Cloudflare Turnstile 和远端分析生成速度。
 

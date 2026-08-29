@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 import pytest
 
 from batchmortal.tenhou import (
@@ -5,6 +7,7 @@ from batchmortal.tenhou import (
     decode_tenhou_viewpoint,
     format_tenhou_timestamp,
     normalize_tenhou_modes,
+    parse_tenhou_log_id,
     parse_tenhou_log_url,
     tenhou_mode_matches,
     tenhou_record_mode,
@@ -136,6 +139,41 @@ def test_non_tenhou_urls_are_not_mistaken_for_tenhou_records():
 
     assert build_tenhou_paipu_urls([record], PLAYER) == []
     assert parse_tenhou_log_url(record["url"]) is None
+
+
+@pytest.mark.parametrize(
+    ("log_id", "expected_mode", "expected_start"),
+    [
+        ("2019050417gm-0029-0000-4f2a8622", "4p-south", "2019-05-04T08:00:00Z"),
+        ("2013022000gm-00b9-0000-73f9f276", "3p-south", "2013-02-19T15:00:00Z"),
+        ("2013022000gm-00e1-0000-b946ce74", "4p-east", "2013-02-19T15:00:00Z"),
+    ],
+)
+def test_parse_tenhou_log_id_decodes_hour_and_rule_bits(
+    log_id,
+    expected_mode,
+    expected_start,
+):
+    metadata = parse_tenhou_log_id(log_id)
+
+    assert metadata is not None
+    assert metadata["start_time"] == expected_start
+    assert metadata["mode"] == expected_mode
+
+
+def test_parse_tenhou_log_id_rejects_invalid_calendar_values():
+    assert parse_tenhou_log_id("2019133217gm-0029-0000-4f2a8622") is None
+
+
+def test_log_id_hour_uses_the_same_utc_timezone_as_nodocchi_timestamps():
+    metadata = parse_tenhou_log_id("2026071212gm-00a9-0000-2dab9d24")
+
+    assert metadata is not None
+    approximate = datetime.fromisoformat(metadata["start_time"].replace("Z", "+00:00"))
+    actual = datetime.fromisoformat(
+        format_tenhou_timestamp(1783828560).replace("Z", "+00:00")
+    )
+    assert timedelta(0) <= actual - approximate < timedelta(hours=1)
 
 
 def test_records_without_url_or_viewpoint_are_skipped():

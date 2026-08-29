@@ -9,7 +9,6 @@ from batchmortal.tenhou import (
     normalize_tenhou_modes,
     parse_tenhou_log_id,
     parse_tenhou_log_url,
-    TENHOU_LOG_TIMEZONE,
     tenhou_mode_matches,
     tenhou_record_mode,
 )
@@ -143,23 +142,21 @@ def test_non_tenhou_urls_are_not_mistaken_for_tenhou_records():
 
 
 @pytest.mark.parametrize(
-    ("log_id", "expected_mode"),
+    ("log_id", "expected_mode", "expected_start"),
     [
-        ("2019050417gm-0029-0000-4f2a8622", "4p-south"),
-        ("2013022000gm-00b9-0000-73f9f276", "3p-south"),
-        ("2013022000gm-00e1-0000-b946ce74", "4p-east"),
+        ("2019050417gm-0029-0000-4f2a8622", "4p-south", "2019-05-04T08:00:00Z"),
+        ("2013022000gm-00b9-0000-73f9f276", "3p-south", "2013-02-19T15:00:00Z"),
+        ("2013022000gm-00e1-0000-b946ce74", "4p-east", "2013-02-19T15:00:00Z"),
     ],
 )
-def test_parse_tenhou_log_id_decodes_hour_and_rule_bits(log_id, expected_mode):
+def test_parse_tenhou_log_id_decodes_hour_and_rule_bits(
+    log_id,
+    expected_mode,
+    expected_start,
+):
     metadata = parse_tenhou_log_id(log_id)
 
     assert metadata is not None
-    expected_start = (
-        datetime.strptime(log_id[:10], "%Y%m%d%H")
-        .replace(tzinfo=TENHOU_LOG_TIMEZONE)
-        .astimezone()
-        .strftime("%Y-%m-%d %H:00:00")
-    )
     assert metadata["start_time"] == expected_start
     assert metadata["mode"] == expected_mode
 
@@ -168,14 +165,13 @@ def test_parse_tenhou_log_id_rejects_invalid_calendar_values():
     assert parse_tenhou_log_id("2019133217gm-0029-0000-4f2a8622") is None
 
 
-def test_log_id_hour_uses_the_same_local_timezone_as_nodocchi_timestamps():
+def test_log_id_hour_uses_the_same_utc_timezone_as_nodocchi_timestamps():
     metadata = parse_tenhou_log_id("2026071212gm-00a9-0000-2dab9d24")
 
     assert metadata is not None
-    approximate = datetime.strptime(metadata["start_time"], "%Y-%m-%d %H:%M:%S")
-    actual = datetime.strptime(
-        format_tenhou_timestamp(1783828560),
-        "%Y-%m-%d %H:%M:%S",
+    approximate = datetime.fromisoformat(metadata["start_time"].replace("Z", "+00:00"))
+    actual = datetime.fromisoformat(
+        format_tenhou_timestamp(1783828560).replace("Z", "+00:00")
     )
     assert timedelta(0) <= actual - approximate < timedelta(hours=1)
 

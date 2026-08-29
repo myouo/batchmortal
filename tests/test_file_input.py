@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from batchmortal.tenhou import parse_tenhou_log_id
 from main import collect_file_tasks, parse_args
 
 
@@ -41,14 +40,14 @@ def test_file_can_be_combined_with_explicit_source_mode(monkeypatch):
             MAJSOUL_URL,
             "260829-e70ff6e7-e2fa-4545-9022-a550b4dbc42f",
             "file",
-            "2026-08-29",
+            "",
         ),
         (
             "tenhou",
             TENHOU_URL,
             "2019050417gm-0029-0000-4f2a8622",
             "4p-south",
-            parse_tenhou_log_id("2019050417gm-0029-0000-4f2a8622")["start_time"],
+            "2019-05-04T08:00:00Z",
         ),
     ],
 )

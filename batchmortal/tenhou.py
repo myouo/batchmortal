@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
+from batchmortal.timeutils import format_unix_timestamp, format_utc_datetime
+
 
 NODOCCHI_API_URL = "https://nodocchi.moe/api/listuser.php"
 REQUEST_HEADERS = {"Accept": "application/json"}
@@ -230,7 +232,6 @@ def parse_tenhou_log_id(log_id: str) -> dict | None:
         started_at = (
             datetime.strptime(match.group("hour"), "%Y%m%d%H")
             .replace(tzinfo=TENHOU_LOG_TIMEZONE)
-            .astimezone()
         )
         game_type = int(match.group("game_type"), 16)
     except ValueError:
@@ -239,23 +240,13 @@ def parse_tenhou_log_id(log_id: str) -> dict | None:
     player_count = 3 if game_type & TENHOU_GAME_TYPE_SANMA else 4
     game_length = "south" if game_type & TENHOU_GAME_TYPE_HANCHAN else "east"
     return {
-        "start_time": started_at.strftime("%Y-%m-%d %H:00:00"),
+        "start_time": format_utc_datetime(started_at),
         "mode": f"{player_count}p-{game_length}",
     }
 
 
 def format_tenhou_timestamp(timestamp) -> str:
-    try:
-        timestamp = int(timestamp)
-    except (TypeError, ValueError):
-        return ""
-    if timestamp <= 0:
-        return ""
-    return (
-        datetime.fromtimestamp(timestamp, timezone.utc)
-        .astimezone()
-        .strftime("%Y-%m-%d %H:%M:%S")
-    )
+    return format_unix_timestamp(timestamp)
 
 
 def build_tenhou_paipu_urls(

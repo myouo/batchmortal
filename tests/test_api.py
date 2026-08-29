@@ -2,7 +2,7 @@ import pytest
 
 from batchmortal.api import (
     acc2match,
-    format_majsoul_uuid_date,
+    format_timestamp,
     parse_majsoul_paipu_url,
 )
 
@@ -26,10 +26,9 @@ def test_acc2match():
     [
         f"https://game.maj-soul.com/1/?paipu={UUID}_a12345678",
         f"https://game.maj-soul.com/1/?paipu={UUID}_a12345678_2",
-        f"https://mahjongsoul.game.yo-star.com/?paipu={UUID}_a12345678",
     ],
 )
-def test_parse_majsoul_paipu_url_supports_official_shared_link_hosts(url):
+def test_parse_majsoul_paipu_url_supports_configured_shared_link_host(url):
     parsed = parse_majsoul_paipu_url(url)
 
     assert parsed is not None
@@ -44,11 +43,19 @@ def test_parse_majsoul_paipu_url_rejects_embedded_or_untrusted_links():
     assert parse_majsoul_paipu_url(
         f"https://example.com/1/?paipu={UUID}_a12345678"
     ) is None
+    assert parse_majsoul_paipu_url(
+        f"https://mahjongsoul.game.yo-star.com/?paipu={UUID}_a12345678"
+    ) is None
+    assert parse_majsoul_paipu_url(
+        f"https://game.mahjongsoul.com/?paipu={UUID}_a12345678"
+    ) is None
 
 
-def test_format_majsoul_uuid_date_uses_only_valid_encoded_dates():
-    assert format_majsoul_uuid_date(UUID) == "2026-08-29"
-    assert format_majsoul_uuid_date(UUID.replace("260829", "261332")) == ""
+def test_format_timestamp_is_explicit_utc_for_seconds_and_milliseconds():
+    expected = "2026-08-29T11:47:23Z"
+
+    assert format_timestamp(1788004043) == expected
+    assert format_timestamp(1788004043000) == expected
 
 
 if __name__ == '__main__':

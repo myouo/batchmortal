@@ -2,9 +2,10 @@ import logging
 import re
 import time
 import urllib.parse
-from datetime import datetime, timezone
 
 import requests
+
+from batchmortal.timeutils import format_unix_timestamp
 
 BASE_URL = 'https://5-data.amae-koromo.com/api/v2/pl4'
 OFFSET_2 = [1117113, 1358437]
@@ -13,14 +14,9 @@ REQUEST_HEADERS = {"Accept": "application/json"}
 SESSION = requests.Session()
 MAJSOUL_PAIPU_HOST_PATHS = {
     "game.maj-soul.com": {"/1", "/1/"},
-    "mahjongsoul.game.yo-star.com": {"", "/"},
 }
 MAJSOUL_UUID_PATTERN = (
     r"\d{6}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-)
-MAJSOUL_UUID_RE = re.compile(
-    rf"^{MAJSOUL_UUID_PATTERN}$",
-    re.IGNORECASE,
 )
 MAJSOUL_PAIPU_VALUE_RE = re.compile(
     rf"(?P<uuid>{MAJSOUL_UUID_PATTERN})_a\d+(?:_\d+)?",
@@ -69,24 +65,6 @@ def parse_majsoul_paipu_url(url: str) -> tuple[str, str] | None:
         )
     )
     return uuid, canonical_url
-
-
-def format_majsoul_uuid_date(uuid: str) -> str:
-    """Return the calendar date encoded by a Mahjong Soul game UUID."""
-    match = MAJSOUL_UUID_RE.fullmatch(str(uuid))
-    if not match:
-        return ""
-
-    value = str(uuid)[:6]
-    try:
-        parsed = datetime(
-            2000 + int(value[:2]),
-            int(value[2:4]),
-            int(value[4:6]),
-        )
-    except ValueError:
-        return ""
-    return parsed.strftime("%Y-%m-%d")
 
 
 def search_player(nickname: str) -> int:
@@ -152,11 +130,13 @@ def get_player_records(account_id: int, limit: int, mode: int) -> list:
     return data
 
 def format_timestamp(ts: int) -> str:
-    if not ts:
+    try:
+        timestamp = float(ts)
+    except (TypeError, ValueError):
         return ""
-    if ts > 1e11:
-        ts = ts / 1000.0
-    return datetime.fromtimestamp(ts, timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    if timestamp > 1e11:
+        timestamp /= 1000.0
+    return format_unix_timestamp(timestamp)
 
 def build_paipu_urls(records: list, account_id: int) -> list:
     """

@@ -39,6 +39,10 @@ def test_rolling_average_requires_a_full_window():
         rolling_average([1, 2], 0)
 
 
+def test_utc_timestamps_are_not_reinterpreted_as_local_time():
+    assert visualize._parse_time("1970-01-01T00:00:01Z") == 1.0
+
+
 def test_invalid_start_time_falls_back_to_result_timestamp_for_plot_limit(tmp_path):
     filepath = tmp_path / "results.csv"
     with filepath.open("w", newline="", encoding="utf-8") as f:
@@ -74,6 +78,7 @@ def test_invalid_start_time_falls_back_to_result_timestamp_for_plot_limit(tmp_pa
     assert [record["uuid"] for record in records] == ["old", "file"]
     assert data is not None
     assert [point["uuid"] for point in data["points"]] == ["file"]
+    assert data["points"][0]["startedAt"] == ""
 
 
 def test_dashboard_data_keeps_missing_ai_null_and_weights_valid_samples():

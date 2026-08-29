@@ -4,11 +4,9 @@ import os
 import sys
 import time
 import urllib.request
-from datetime import datetime, timezone
 
 from batchmortal.api import (
     build_paipu_urls,
-    format_majsoul_uuid_date,
     get_player_records,
     get_player_nickname_by_id,
     parse_majsoul_paipu_url,
@@ -21,6 +19,7 @@ from batchmortal.browser import (
     normalize_review_ui,
 )
 from batchmortal.results import ResultWriter, parse_metadata, get_processed_uuids, read_result_rows
+from batchmortal.timeutils import utc_now_string
 from batchmortal.tenhou import (
     build_tenhou_paipu_urls,
     fetch_tenhou_player_records,
@@ -457,7 +456,7 @@ def collect_file_tasks(
                         "mode": "file",
                         "uuid": uuid,
                         "paipu_url": paipu_url,
-                        "start_time": format_majsoul_uuid_date(uuid),
+                        "start_time": "",
                         "end_time": "",
                         "mode_dir": os.path.join(output_root, "mode_file"),
                     }
@@ -566,7 +565,7 @@ def load_final_analysis_stats(out_path: str, output_format: str, include_bad_mov
 
 def consume_result_event(args, writer: ResultWriter, result_event: dict, stats: dict | None = None) -> tuple[int, int]:
     task = result_event["task"]
-    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    timestamp = utc_now_string()
     base_row = {
         "nickname": args.target_name,
         "source": task.get("source", args.source),

@@ -25,13 +25,20 @@ def _parse_time(value) -> float:
         return 0.0
     try:
         if text.endswith("Z"):
-            return datetime.fromisoformat(text[:-1]).timestamp()
+            return datetime.fromisoformat(text[:-1] + "+00:00").timestamp()
         return datetime.strptime(text, "%Y-%m-%d %H:%M:%S").timestamp()
     except Exception:
         try:
             return datetime.fromisoformat(text).timestamp()
         except Exception:
             return 0.0
+
+
+def _record_sort_time(record: dict) -> float:
+    start_time = _parse_time(record.get("startTime"))
+    if start_time:
+        return start_time
+    return _parse_time(record.get("timestamp"))
 
 
 def read_results(
@@ -74,7 +81,7 @@ def read_results(
     else:
         raise ValueError(f"Unsupported output format: {output_format}")
 
-    records.sort(key=lambda row: _parse_time(row.get("startTime") or row.get("timestamp")))
+    records.sort(key=_record_sort_time)
     return records
 
 
@@ -354,7 +361,9 @@ def prepare_dashboard_data(records: list[dict], plot_limit: int | None = None) -
                 bad_rate_10 = bad_count_10 / bad_denominator * 100
 
         mode = str(record.get("mode") or "—")
-        started_at = str(record.get("startTime") or record.get("timestamp") or "")
+        started_at = str(record.get("startTime") or "")
+        if started_at and not _parse_time(started_at):
+            started_at = ""
         points.append(
             {
                 "index": len(points) + 1,

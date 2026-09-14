@@ -1,4 +1,14 @@
-from batchmortal.api import acc2match
+import pytest
+
+from batchmortal.api import (
+    acc2match,
+    format_timestamp,
+    parse_majsoul_paipu_url,
+)
+
+
+UUID = "260829-e70ff6e7-e2fa-4545-9022-a550b4dbc42f"
+
 
 def test_acc2match():
     # From decode.py and JS selfTest: acc2match(15628582) should equal 63606719
@@ -9,6 +19,44 @@ def test_acc2match():
     else:
         print(f"[Test] acc2match MISMATCH: expected {expected}, got {got}")
         exit(1)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        f"https://game.maj-soul.com/1/?paipu={UUID}_a12345678",
+        f"https://game.maj-soul.com/1/?paipu={UUID}_a12345678_2",
+    ],
+)
+def test_parse_majsoul_paipu_url_supports_configured_shared_link_host(url):
+    parsed = parse_majsoul_paipu_url(url)
+
+    assert parsed is not None
+    assert parsed[0] == UUID
+    assert parsed[1] == url
+
+
+def test_parse_majsoul_paipu_url_rejects_embedded_or_untrusted_links():
+    trusted = f"https://game.maj-soul.com/1/?paipu={UUID}_a12345678"
+
+    assert parse_majsoul_paipu_url(f"prefix {trusted}") is None
+    assert parse_majsoul_paipu_url(
+        f"https://example.com/1/?paipu={UUID}_a12345678"
+    ) is None
+    assert parse_majsoul_paipu_url(
+        f"https://mahjongsoul.game.yo-star.com/?paipu={UUID}_a12345678"
+    ) is None
+    assert parse_majsoul_paipu_url(
+        f"https://game.mahjongsoul.com/?paipu={UUID}_a12345678"
+    ) is None
+
+
+def test_format_timestamp_is_explicit_utc_for_seconds_and_milliseconds():
+    expected = "2026-08-29T11:47:23Z"
+
+    assert format_timestamp(1788004043) == expected
+    assert format_timestamp(1788004043000) == expected
+
 
 if __name__ == '__main__':
     test_acc2match()
